@@ -1,6 +1,8 @@
 # Auto Bookmarks
 
-Auto Bookmarks is a Visual Studio Code extension that scans the active editor for configured text markers and displays matching occurrences in a dedicated Activity Bar view.
+Auto Bookmarks is a Visual Studio Code extension that scans the active editor for configured text markers and displays matching occurrences in a dedicated **Auto Bookmarks** view.
+
+<br aria-hidden="true">
 
 ## Features
 
@@ -9,137 +11,155 @@ Auto Bookmarks is a Visual Studio Code extension that scans the active editor fo
 - Configure search texts, permitted file extensions, case sensitivity, and colors.
 - Colors highlight matching line numbers and the editor overview ruler.
 - Select text in the editor, right-click, and choose **Auto Bookmarks: Add Selected Text**.
-- All settings are stored in VS Code User/Global configuration and apply across workspaces.
+- All settings are stored in VS Code **User/Global configuration** and apply across workspaces.
+
+<br aria-hidden="true">
 
 ## Commands
+
+The extension provides the following commands:
 
 - `Auto Bookmarks: Refresh`
 - `Auto Bookmarks: Open Settings`
 - `Auto Bookmarks: Add Selected Text`
 
+<br aria-hidden="true">
+
 ## Settings
+
+The following VS Code settings are available:
 
 - `autoBookmarks.searchTexts`
 - `autoBookmarks.fileTypes`
 - `autoBookmarks.caseSensitive`
 - `autoBookmarks.colors`
 
-## Development
+<br aria-hidden="true">
 
-Install Node.js, then install the VS Code Extension Manager and package the extension:
+# Installation
 
-```bash
-npm install
-npm run package
+## 1. Download the Extension
+
+Download the latest VSIX package:
+
+```text
+auto-bookmarks-2.0.2.vsix
 ```
 
-The package script produces `auto-bookmarks-2.0.2.vsix`.
+<br aria-hidden="true">
 
-## License
+## 2. Install in Visual Studio Code
 
-MIT
+1. Open Visual Studio Code.
 
-## Auto Bookmarks Installation
-1. Download the extension
-Download the latest VSIX package
+2. Open the **Extensions** view:
 
-2. Install in Visual Studio Code
-Open Visual Studio Code.
-Open Extensions with:
-Ctrl + Shift + X
-Click the ⋯ menu at the top of the Extensions panel.
-Select Install from VSIX...
-Select:
-auto-bookmarks-2.1.0.vsix
-Wait for the installation to finish.
-Press:
-Ctrl + Shift + P
-Run:
-Developer: Reload Window
+   ```text
+   Ctrl + Shift + X
+   ```
 
-3. Open Auto Bookmarks
-Open the standard Explorer sidebar with:
+3. Click the **⋯** menu at the top of the Extensions panel.
+
+4. Select **Install from VSIX...**
+
+5. Select:
+
+   ```text
+   auto-bookmarks-2.0.2.vsix
+   ```
+
+6. Wait for the installation to finish.
+
+7. Open the Command Palette:
+
+   ```text
+   Ctrl + Shift + P
+   ```
+
+8. Run:
+
+   ```text
+   Developer: Reload Window
+   ```
+
+<br aria-hidden="true">
+
+## 3. Open Auto Bookmarks
+
+Open the standard **Explorer** sidebar:
+
+```text
 Ctrl + Shift + E
-You should see a new section named
-Auto Bookmarks
+```
 
-The extension deliberately uses a native Tree View inside Explorer. VS Code supports extension views in built-in containers such as Explorer.
+You should see a new section named:
 
-4. Configure Auto Bookmarks
-In the Auto Bookmarks section, use the ⚙ settings button.
-Alternatively:
+> **Auto Bookmarks**
+
+The extension uses a native Tree View inside the Explorer sidebar.
+
+<br aria-hidden="true">
+
+# Configuration
+
+## Open the Settings Page
+
+In the **Auto Bookmarks** section, click the **⚙ Settings** button.
+
+Alternatively, open the Command Palette:
+
+```text
 Ctrl + Shift + P
-and run:
-Auto Bookmarks: Open Settings Page
+```
+
+Then run:
+
+```text
+Auto Bookmarks: Open Settings
+```
 
 You can configure:
+
 - Search texts
 - Bookmark colors
 - Allowed file types
 - Case-sensitive matching
 
-When adding or removing search texts, use:
-- Save search texts & refresh colors
-This refreshes the available color configuration.
-After changing other options, use:
-- Save all settings
+<br aria-hidden="true">
 
-5. Add a bookmark search directly from code
-You don't have to open Settings every time.
+## Saving Search Texts
+
+When adding or removing search texts, use:
+
+> **Save search texts & refresh colors**
+
+This refreshes the available color configuration based on the current search texts.
+
+After changing other options, use:
+
+> **Save all settings**
+
+<br aria-hidden="true">
+
+# Adding Search Text Directly from Code
+
+You don't have to open the Settings page every time you want to add a new search text.
+
 For example, highlight:
 
+```javascript
 gs.addErrorMessage
+```
 
 Then:
-Right-click the selected text.
 
-Select:
-Auto Bookmarks: Add Selected Text
+1. Right-click the selected text.
+2. Select:
 
-The text is added to the extension configuration.
-All occurrences can then appear under that group in Auto Bookmarks.
-The command is configured to appear in the editor context menu when text is selected.
+   > **Auto Bookmarks: Add Selected Text**
 
-6. Edit the configuration manually
-You can also edit the extension settings directly in your Usersettings.json.
-For example:
+The selected text is added to the extension configuration.
 
-JSON
-{
-"autoBookmarks.searchTexts": [
-"TODO",
-"FIXME",
-"GlideRecord",
-"gs.addErrorMessage"
-],
- 
-"autoBookmarks.fileTypes": [
-".js",
-".ts"
-],
- 
-"autoBookmarks.colors": {
-"TODO": "#fbbf24",
-"FIXME": "#f87171",
-"GlideRecord": "#38bdf8",
-"gs.addErrorMessage": "#3b82f6"
-},
- 
-"autoBookmarks.caseSensitive": true
-}
+All matching occurrences can then appear under that group in the **Auto Bookmarks** view.
 
-
-Version 2.1.0 uses User/Global settings, so these settings work even when you have opened an individual file without opening a VS Code workspace.
-
-7.Updating from an older version
-
-If you previously installed one of the development versions, I recommend a clean upgrade:
-
-Uninstall Auto Bookmarks.
-Close VS Code.
-Start VS Code again.
-Install auto-bookmarks-2.1.0.vsix.
-Run Developer: Reload Window.
-Open Explorer and find Auto Bookmarks.
-
-This avoids stale view registrations from the earlier builds.
+The command is available in
