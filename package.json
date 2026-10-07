@@ -1,1 +1,132 @@
-{"name":"auto-bookmarks","displayName":"Auto Bookmarks","description":"Automatically find configured text markers and navigate grouped occurrences from the Activity Bar.","version":"2.0.2","publisher":"local","engines":{"vscode":"^1.90.0"},"categories":["Other"],"main":"./extension.js","activationEvents":["onStartupFinished","onView:autoBookmarksView","onCommand:autoBookmarks.openSettings","onCommand:autoBookmarks.addSelectedText"],"contributes":{"commands":[{"command":"autoBookmarks.refresh","title":"Auto Bookmarks: Refresh","icon":"$(refresh)"},{"command":"autoBookmarks.openSettings","title":"Auto Bookmarks: Open Settings","icon":"$(settings-gear)"},{"command":"autoBookmarks.addSelectedText","title":"Auto Bookmarks: Add Selected Text"}],"menus":{"editor/context":[{"command":"autoBookmarks.addSelectedText","when":"editorHasSelection","group":"navigation@100"}],"view/title":[{"command":"autoBookmarks.refresh","when":"view == autoBookmarksView","group":"navigation@1"},{"command":"autoBookmarks.openSettings","when":"view == autoBookmarksView","group":"navigation@2"}]},"viewsContainers":{"activitybar":[{"id":"autoBookmarksContainer","title":"Auto Bookmarks","icon":"media/bookmark.svg"}]},"views":{"autoBookmarksContainer":[{"id":"autoBookmarksView","name":"Bookmarks","icon":"media/bookmark.svg"}]},"configuration":{"title":"Auto Bookmarks","properties":{"autoBookmarks.searchTexts":{"type":"array","items":{"type":"string"},"default":["TODO","FIXME","GlideRecord"]},"autoBookmarks.fileTypes":{"type":"array","items":{"type":"string"},"default":[".js",".ts",".jsx",".tsx",".json",".html",".css",".xml"]},"autoBookmarks.caseSensitive":{"type":"boolean","default":true},"autoBookmarks.colors":{"type":"object","default":{"TODO":"#fbbf24","FIXME":"#f87171","GlideRecord":"#38bdf8"}}}}},"repository":{"type":"git","url":"https://github.com/sKravciv/auto-bookmarks.git"},"scripts":{"package":"vsce package --no-dependencies -o auto-bookmarks-2.0.2.vsix"},"devDependencies":{"@vscode/vsce":"^3.6.2"},"files":["extension.js","media","README.md","CHANGELOG.md","LICENSE"],"license":"MIT"}
+{
+  "name": "auto-bookmarks",
+  "displayName": "Auto Bookmarks",
+  "description": "Automatically find configured text markers and navigate grouped occurrences from the Activity Bar.",
+  "version": "2.0.3",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:autoBookmarksView",
+    "onCommand:autoBookmarks.openSettings",
+    "onCommand:autoBookmarks.addSelectedText"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "autoBookmarks.refresh",
+        "title": "Auto Bookmarks: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "autoBookmarks.openSettings",
+        "title": "Auto Bookmarks: Open Settings",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "autoBookmarks.addSelectedText",
+        "title": "Auto Bookmarks: Add Selected Text"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "autoBookmarks.addSelectedText",
+          "when": "editorHasSelection",
+          "group": "navigation@100"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "autoBookmarks.refresh",
+          "when": "view == autoBookmarksView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "autoBookmarks.openSettings",
+          "when": "view == autoBookmarksView",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "autoBookmarksContainer",
+          "title": "Auto Bookmarks",
+          "icon": "media/bookmark.svg"
+        }
+      ]
+    },
+    "views": {
+      "autoBookmarksContainer": [
+        {
+          "id": "autoBookmarksView",
+          "name": "Bookmarks",
+          "icon": "media/bookmark.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "autoBookmarksView",
+        "contents": "No bookmarks found in the active file.\n[Open Settings](command:autoBookmarks.openSettings)\n[Refresh](command:autoBookmarks.refresh)"
+      }
+    ],
+    "configuration": {
+      "title": "Auto Bookmarks",
+      "properties": {
+        "autoBookmarks.searchTexts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "TODO",
+            "FIXME",
+            "GlideRecord"
+          ],
+          "description": "Texts to find in the active file."
+        },
+        "autoBookmarks.fileTypes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".json",
+            ".html",
+            ".css",
+            ".xml"
+          ],
+          "description": "Extensions to scan. Empty means all file types."
+        },
+        "autoBookmarks.caseSensitive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use case-sensitive matching."
+        },
+        "autoBookmarks.colors": {
+          "type": "object",
+          "default": {
+            "TODO": "#fbbf24",
+            "FIXME": "#f87171",
+            "GlideRecord": "#38bdf8"
+          },
+          "description": "Marker colors. Colors are used to highlight matching editor line numbers."
+        }
+      }
+    }
+  },
+  "license": "MIT"
+}
