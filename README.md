@@ -11,7 +11,6 @@ It is useful for quickly navigating recurring code patterns such as `TODO`, `FIX
 - Groups detected occurrences by search text.
 - Shows the number of matches for each bookmark group.
 - Click an occurrence to navigate directly to its source line.
-- Highlights matching **line numbers** using configurable colors.
 - Displays matching colors in the editor **overview ruler** for quick navigation through larger files.
 - Supports configurable file extensions.
 - Supports case-sensitive or case-insensitive matching.
