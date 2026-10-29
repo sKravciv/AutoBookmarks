@@ -2,7 +2,7 @@
   "name": "auto-bookmarks",
   "displayName": "Auto Bookmarks",
   "description": "Automatically find configured text markers and navigate grouped occurrences from the Activity Bar.",
-  "version": "2.0.3",
+  "version": "2.3.0",
   "publisher": "local",
   "engines": {
     "vscode": "^1.90.0"
@@ -87,12 +87,9 @@
           "items": {
             "type": "string"
           },
-          "default": [
-            "TODO",
-            "FIXME",
-            "GlideRecord"
-          ],
-          "description": "Texts to find in the active file."
+          "default": [],
+          "description": "Deprecated. Moved into autoBookmarks.documentationLinks (text, color, url); existing values are migrated automatically.",
+          "deprecationMessage": "Deprecated: use autoBookmarks.documentationLinks instead."
         },
         "autoBookmarks.fileTypes": {
           "type": "array",
@@ -118,12 +115,53 @@
         },
         "autoBookmarks.colors": {
           "type": "object",
-          "default": {
-            "TODO": "#fbbf24",
-            "FIXME": "#f87171",
-            "GlideRecord": "#38bdf8"
-          },
-          "description": "Marker colors. Colors are used to highlight matching editor line numbers."
+          "default": {},
+          "description": "Deprecated. Colors are now set per entry in autoBookmarks.documentationLinks; existing values are migrated automatically.",
+          "deprecationMessage": "Deprecated: use autoBookmarks.documentationLinks instead."
+        },
+        "autoBookmarks.maxFileSizeMB": {
+          "type": "number",
+          "default": 20,
+          "minimum": 0,
+          "description": "Maximum file size in MB that Auto Bookmarks will scan. Set to 0 to disable the limit."
+        },
+        "autoBookmarks.documentationLinks": {
+          "type": "array",
+          "default": [
+            {
+              "text": "TODO",
+              "color": "#fbbf24"
+            },
+            {
+              "text": "FIXME",
+              "color": "#f87171"
+            },
+            {
+              "text": "GlideRecord",
+              "color": "#38bdf8"
+            }
+          ],
+          "description": "Bookmarks: text to find in the active file, an optional highlight color and an optional documentation URL. Entries with an http(s) URL also show an \"Open Documentation\" lightbulb when the cursor is on an exact match.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Text to find (exact, whole word for the documentation lightbulb)."
+              },
+              "color": {
+                "type": "string",
+                "description": "Highlight color for the matching line numbers, for example #38bdf8."
+              },
+              "url": {
+                "type": "string",
+                "description": "Optional http(s) documentation URL opened by the Quick Fix."
+              }
+            },
+            "required": [
+              "text"
+            ]
+          }
         }
       }
     }

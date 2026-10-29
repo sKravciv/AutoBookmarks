@@ -15,13 +15,32 @@ It is useful for quickly navigating recurring code patterns such as `TODO`, `FIX
 - Displays matching colors in the editor **overview ruler** for quick navigation through larger files.
 - Supports configurable file extensions.
 - Supports case-sensitive or case-insensitive matching.
-- Provides a dedicated **Auto Bookmarks Settings** page.
+- Provides a dedicated **Auto Bookmarks Settings** page with one **Bookmarks** table for search texts, colors and documentation links.
 - Add new search text directly from the editor context menu.
+- Optional documentation link per bookmark: put the cursor on the text and the lightbulb (Quick Fix) opens its documentation page.
+- Skips files above a configurable size limit and caches scan results, so large files stay responsive.
 - Stores all configuration at the VS Code **User/Global** level so the same settings work across workspaces and when individual files are opened.
 
 ## Version
 
-Current version: **2.0.3**
+Current version: **2.3.0**
+
+### What's new in 2.3.0
+
+- One list for everything: the **Bookmarks** section of the settings page replaces the *Search texts*, *Bookmark colors* and *Documentation Links* sections. Each row has a search text, a color and an optional documentation link.
+- The list is stored in `autoBookmarks.documentationLinks`. Existing `autoBookmarks.searchTexts` and `autoBookmarks.colors` values are merged into it automatically the first time 2.3.0 starts, and both settings are deprecated.
+- **Add Selected Text** in the editor context menu adds a row to the same list.
+
+### What's new in 2.2.0
+
+- Documentation quick links: map text to a URL with `autoBookmarks.documentationLinks` (or the **Documentation Links** section of the settings page). With the cursor on an exact match, the lightbulb offers `Open <text> Documentation`. The separate Documentation Links section was merged into **Bookmarks** in 2.3.0.
+
+### What's new in 2.1.0
+
+- Large-file performance: files larger than `autoBookmarks.maxFileSizeMB` (default 20 MB) are skipped, with a status bar message shown once per file. The limit can also be edited on the settings page; set it to `0` to disable it.
+- Scan results are cached per document version (up to 20 documents) and shared by the tree, badge and line-number highlights.
+- The view and highlights refresh 300 ms after the last change instead of on every keystroke.
+- All markers are found in a single pass, and each match stores at most the first 200 characters of its line as preview text.
 
 ### What's new in 2.0.3
 
@@ -38,7 +57,7 @@ Current version: **2.0.3**
 Download the VSIX package:
 
 ```text
-auto-bookmarks-2.0.3.vsix
+auto-bookmarks-2.3.0.vsix
 ```
 
 ### Install in Visual Studio Code
@@ -55,7 +74,7 @@ auto-bookmarks-2.0.3.vsix
 5. Select:
 
    ```text
-   auto-bookmarks-2.0.3.vsix
+   auto-bookmarks-2.3.0.vsix
    ```
 
 6. Wait for the installation to complete.
@@ -76,7 +95,7 @@ auto-bookmarks-2.0.3.vsix
 You can also install the VSIX from a terminal:
 
 ```bash
-code --install-extension auto-bookmarks-2.0.3.vsix
+code --install-extension auto-bookmarks-2.3.0.vsix
 ```
 
 ## Using Auto Bookmarks
@@ -104,20 +123,16 @@ Open the dedicated Auto Bookmarks settings page using either:
 
 The settings page allows you to configure:
 
-- Search texts
-- Bookmark colors
+- Bookmarks: one row per search text, with its color and an optional documentation link
 - Allowed file types
 - Case-sensitive matching
+- Maximum file size to scan
 
-When adding or removing search texts, use:
+Edit the **Bookmarks** table (add rows with **+ Add Bookmark**, remove them with **Delete**), then click:
 
-> **Save search texts & refresh colors**
+> **Save settings**
 
-This saves the search-text list and refreshes the available bookmark color configuration.
-
-After changing other options, use:
-
-> **Save all settings**
+Use **Discard** to reload the saved values.
 
 All Auto Bookmarks settings are stored at the VS Code **User/Global** level. Your configuration therefore applies across workspaces and also works when you open an individual file without opening a workspace.
 
@@ -135,31 +150,36 @@ Then:
 
 1. Right-click the selected text.
 2. Choose **Auto Bookmarks: Add Selected Text**.
-3. The selected value is added to your configured search texts.
+3. The selected value is added to your **Bookmarks** list with the default color.
 4. Auto Bookmarks refreshes the detected occurrences.
 
 The context-menu command is available when text is selected in the editor.
 
-## Bookmark Colors
+## Bookmarks
 
-Each configured search text can have its own color.
+Everything Auto Bookmarks looks for lives in one list, `autoBookmarks.documentationLinks`. Each entry is one row of the **Bookmarks** table on the settings page:
 
-The selected color is used in two places:
-
-1. The matching **line number** in the editor.
-2. The editor **overview ruler** on the right side.
+- `text` - the text to find in the active file (required).
+- `color` - the highlight color used for the matching **line number** in the editor and in the editor **overview ruler** (default blue).
+- `url` - an optional `http` or `https` documentation link.
 
 For example:
 
 ```json
-"autoBookmarks.colors": {
-    "TODO": "#fbbf24",
-    "FIXME": "#f87171",
-    "GlideRecord": "#38bdf8"
-}
+"autoBookmarks.documentationLinks": [
+    { "text": "TODO", "color": "#fbbf24" },
+    { "text": "FIXME", "color": "#f87171" },
+    {
+        "text": "GlideRecord",
+        "color": "#38bdf8",
+        "url": "https://developer.servicenow.com/dev.do#!/reference/api"
+    }
+]
 ```
 
-This makes different bookmark types easier to distinguish when navigating larger source files.
+Entries with a `url` also offer a lightbulb: put the cursor on an exact, case-sensitive match (`GlideRecord`, not `GlideRecordSecure` or `MyGlideRecord`) and the Quick Fix menu (`Ctrl + .`, or `Cmd + .` on macOS) shows **Open GlideRecord Documentation**. Only `http` and `https` URLs are opened. The lightbulb looks only at the text around the cursor, works in any document regardless of `autoBookmarks.fileTypes`, and has no cost on large files.
+
+Upgrading from 2.2.0 or earlier: your existing `autoBookmarks.searchTexts` and `autoBookmarks.colors` values are merged into this list automatically the first time 2.3.0 starts, then removed from your user settings.
 
 ## Manual Configuration
 
@@ -169,21 +189,16 @@ Example:
 
 ```json
 {
-    "autoBookmarks.searchTexts": [
-        "TODO",
-        "FIXME",
-        "GlideRecord"
+    "autoBookmarks.documentationLinks": [
+        { "text": "TODO", "color": "#fbbf24" },
+        { "text": "FIXME", "color": "#f87171" },
+        { "text": "GlideRecord", "color": "#38bdf8", "url": "https://developer.servicenow.com/dev.do#!/reference/api" }
     ],
     "autoBookmarks.fileTypes": [
         ".js",
         ".ts"
     ],
-    "autoBookmarks.caseSensitive": true,
-    "autoBookmarks.colors": {
-        "TODO": "#fbbf24",
-        "FIXME": "#f87171",
-        "GlideRecord": "#38bdf8"
-    }
+    "autoBookmarks.caseSensitive": true
 }
 ```
 
@@ -197,10 +212,15 @@ To allow Auto Bookmarks to scan files regardless of extension, use an empty file
 
 ## Available Settings
 
-- `autoBookmarks.searchTexts` - Text values Auto Bookmarks searches for.
+- `autoBookmarks.documentationLinks` - The bookmark list: `text` to find, optional `color` and optional `url` (shows an *Open Documentation* lightbulb).
 - `autoBookmarks.fileTypes` - File extensions that Auto Bookmarks is allowed to scan.
 - `autoBookmarks.caseSensitive` - Controls whether matching is case-sensitive.
-- `autoBookmarks.colors` - Defines the highlight color associated with each search text.
+- `autoBookmarks.maxFileSizeMB` - Largest file size in MB that Auto Bookmarks will scan (default `20`, `0` disables the limit).
+- `autoBookmarks.searchTexts` and `autoBookmarks.colors` - Deprecated; merged into `autoBookmarks.documentationLinks` automatically.
+
+## Large Files
+
+Files larger than `autoBookmarks.maxFileSizeMB` are not scanned, and the status bar shows *Auto Bookmarks: file exceeds configured X MB limit* once per file. Raise the limit or set it to `0` if you want larger files scanned; scanning is a single pass and cached, but very large files with many matches still take time and memory.
 
 ## Commands
 
@@ -240,10 +260,21 @@ If you are upgrading from an older development build and encounter UI problems, 
 
 Check the following:
 
-- The text is present in `autoBookmarks.searchTexts`.
+- The text is present in the Bookmarks list (`autoBookmarks.documentationLinks`).
 - The current file extension is allowed by `autoBookmarks.fileTypes`.
 - `autoBookmarks.caseSensitive` matches the capitalization you expect.
 - Run **Auto Bookmarks: Refresh** from the Command Palette.
+
+### Nothing is found in a large file
+
+Files larger than `autoBookmarks.maxFileSizeMB` (default 20 MB) are skipped, and the status bar shows *Auto Bookmarks: file exceeds configured X MB limit*. Raise the limit on the settings page, or set it to `0` to scan every file.
+
+### The documentation lightbulb does not appear
+
+- The bookmark has a `url` that starts with `http://` or `https://`.
+- The cursor is on the complete text, with the same capitalization (`GlideRecord`, not `GlideRecordSecure`, `MyGlideRecord` or `glideRecord`).
+- Press `Ctrl + .` (`Cmd + .` on macOS) to open the Quick Fix menu directly.
+- `editor.lightbulb.enabled` is not turned off in your VS Code settings.
 
 ### Activity Bar badge does not show a number
 
@@ -251,23 +282,19 @@ The badge only appears when the active supported file contains at least one conf
 
 ## Development
 
-Install the project dependencies:
+The extension has no dependencies and no build step, so there is nothing to install. Package it with `vsce`:
 
 ```bash
-npm install
-```
-
-Package the extension:
-
-```bash
-npm run package
+npx @vscode/vsce package --allow-missing-repository
 ```
 
 The package should produce:
 
 ```text
-auto-bookmarks-2.0.3.vsix
+auto-bookmarks-2.3.0.vsix
 ```
+
+`--allow-missing-repository` skips the prompt about the missing `repository` field in `package.json`; add that field if you prefer to drop the flag.
 
 ## Repository Structure
 
@@ -275,16 +302,15 @@ auto-bookmarks-2.0.3.vsix
 AutoBookmarks/
 ├── media/
 │   └── bookmark.svg
-├── .gitignore
-├── .vscodeignore
 ├── CHANGELOG.md
 ├── LICENSE
 ├── README.md
+├── auto-bookmarks-2.3.0.vsix
 ├── extension.js
 └── package.json
 ```
 
-The `media/bookmark.svg` file is used for the Auto Bookmarks Activity Bar icon.
+The `media/bookmark.svg` file is used for the Auto Bookmarks Activity Bar icon, and `auto-bookmarks-2.3.0.vsix` is the ready-to-install package of the current version.
 
 ## License
 
