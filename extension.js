@@ -197,7 +197,11 @@ async function migrateLegacySettings(context){
   const c = config();
   const userValue = key => { const i = c.inspect(key); return i ? i.globalValue : undefined; };
   const legacyTexts = userValue('searchTexts'), legacyColors = userValue('colors'), userLinks = userValue('documentationLinks');
-  if (legacyTexts !== undefined || legacyColors !== undefined || Array.isArray(userLinks)) {
+  // Safe to run again (the flag is per extension ID and starts empty if the ID changes): after a migration the legacy keys are gone
+  // and the list written by 2.3.0 always carries colors, so neither condition below matches a second time.
+  const hasLegacy = legacyTexts !== undefined || legacyColors !== undefined;
+  const looksLikeV22 = Array.isArray(userLinks) && userLinks.length > 0 && userLinks.every(x => !x || typeof x !== 'object' || !x.color);
+  if (hasLegacy || looksLikeV22) {
     const texts = Array.isArray(legacyTexts) ? legacyTexts : LEGACY_DEFAULT_TEXTS;                      // what the old defaults searched for
     const colors = { ...LEGACY_DEFAULT_COLORS, ...(legacyColors && typeof legacyColors === 'object' ? legacyColors : {}) };
     const merged = [], seen = new Set();

@@ -240,6 +240,8 @@ To install a newer version:
 5. Select the newer VSIX package.
 6. Run **Developer: Reload Window** after installation.
 
+**Upgrading from a build published as `local`:** the publisher ID changed from `local` to `skravciv`, so the extension ID is now `skravciv.auto-bookmarks`. VS Code treats it as a different extension, so uninstall the old **Auto Bookmarks** first; otherwise the two copies conflict because they register the same commands and views. Your `autoBookmarks.*` settings are kept.
+
 If you are upgrading from an older development build and encounter UI problems, perform a clean upgrade:
 
 1. Uninstall Auto Bookmarks.

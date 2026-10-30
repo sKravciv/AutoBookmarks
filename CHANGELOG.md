@@ -7,6 +7,7 @@
 - **Add Selected Text** adds an entry to the same list.
 - The settings page checks rows before saving (search text required, no duplicates, `http(s)` URLs only) and shows problems inline.
 - Changing the list rescans the active file and refreshes the view and highlights.
+- Changed the publisher ID from `local` to `skravciv` (extension ID `skravciv.auto-bookmarks`). Uninstall the previous build before installing this one; settings are kept.
 
 ## 2.2.0
 - Added documentation quick links: an entry with a `url` offers an `Open <text> Documentation` lightbulb Quick Fix when the cursor is on an exact, whole-word, case-sensitive match. Only `http(s)` URLs are opened, it works in any document, and only the text around the cursor is examined.

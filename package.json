@@ -3,7 +3,7 @@
   "displayName": "Auto Bookmarks",
   "description": "Automatically find configured text markers and navigate grouped occurrences from the Activity Bar.",
   "version": "2.3.0",
-  "publisher": "local",
+  "publisher": "skravciv",
   "engines": {
     "vscode": "^1.90.0"
   },
