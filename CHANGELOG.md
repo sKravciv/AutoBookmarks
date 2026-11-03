@@ -1,5 +1,3 @@
-# Changelog
-
 ## 2.6.0
 - Added **export and import of the settings**: new commands `Auto Bookmarks: Export Settings` and `Auto Bookmarks: Import Settings`, plus **Export...** / **Import...** buttons on the settings page. The export is a versioned JSON file (`format: auto-bookmarks-settings`) with the bookmarks (including inactive ones), file types, case sensitivity, maximum file size and highlight style.
 - Import validates every value and drops what is invalid (bad colors, non-http(s) links, duplicates, unknown keys), refuses files over 1 MB, a different format or a newer file version, and asks before changing anything: **Replace** or **Merge** (add only bookmarks you do not have yet). Imported values are saved at the User/Global level. A block copied from `settings.json` is accepted too.
