@@ -2,8 +2,17 @@
   "name": "auto-bookmarks",
   "displayName": "Auto Bookmarks",
   "description": "Automatically find configured text markers and navigate grouped occurrences from the Activity Bar.",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "publisher": "skravciv",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sKravciv/AutoBookmarks.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -11,6 +20,16 @@
     "Other"
   ],
   "main": "./extension.js",
+  "scripts": {
+    "icon": "node scripts/generate-icon.js",
+    "vscode:prepublish": "npm run icon",
+    "test": "node --test",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@vscode/vsce": "^3.0.0"
+  },
   "activationEvents": [
     "onStartupFinished",
     "onView:autoBookmarksView",
@@ -130,18 +149,21 @@
           "default": [
             {
               "text": "TODO",
+              "active": true,
               "color": "#fbbf24"
             },
             {
               "text": "FIXME",
+              "active": true,
               "color": "#f87171"
             },
             {
               "text": "GlideRecord",
+              "active": true,
               "color": "#38bdf8"
             }
           ],
-          "description": "Bookmarks: text to find in the active file, an optional highlight color and an optional documentation URL. Entries with an http(s) URL also show an \"Open Documentation\" lightbulb when the cursor is on an exact match.",
+          "description": "Bookmarks: text to find in the active file, an optional highlight color and an optional documentation URL. Set \"active\": false to stop searching for an entry without deleting it. Entries with an http(s) URL also show an \"Open Documentation\" lightbulb when the cursor is on an exact match.",
           "items": {
             "type": "object",
             "properties": {
@@ -149,9 +171,14 @@
                 "type": "string",
                 "description": "Text to find (exact, whole word for the documentation lightbulb)."
               },
+              "active": {
+                "type": "boolean",
+                "default": true,
+                "description": "Only active entries are searched. Inactive entries stay saved but create no bookmarks or highlights. Missing means true."
+              },
               "color": {
                 "type": "string",
-                "description": "Highlight color for the matching line numbers, for example #38bdf8."
+                "description": "Highlight color (for example #38bdf8) for the gutter next to the line number of matching lines and for the overview ruler."
               },
               "url": {
                 "type": "string",

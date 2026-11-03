@@ -11,7 +11,8 @@ It is useful for quickly navigating recurring code patterns such as `TODO`, `FIX
 - Groups detected occurrences by search text.
 - Shows the number of matches for each bookmark group.
 - Click an occurrence to navigate directly to its source line.
-- Displays matching colors in the editor **overview ruler** for quick navigation through larger files.
+- Colors the **gutter next to the line number** of every matching line (one color per bookmark) and shows the same color in the editor **overview ruler** for quick navigation through larger files. The text of the line is not changed.
+- **Active** checkbox per bookmark: temporarily switch a search text off without deleting it.
 - Supports configurable file extensions.
 - Supports case-sensitive or case-insensitive matching.
 - Provides a dedicated **Auto Bookmarks Settings** page with one **Bookmarks** table for search texts, colors and documentation links.
@@ -22,7 +23,14 @@ It is useful for quickly navigating recurring code patterns such as `TODO`, `FIX
 
 ## Version
 
-Current version: **2.3.0**
+Current version: **2.4.0**
+
+### What's new in 2.4.0
+
+- **Active checkbox** for every bookmark. Each entry of `autoBookmarks.documentationLinks` can carry `"active": true|false`. Inactive entries are not searched, create no bookmarks, badge count or highlights, and stay stored so you can switch them on again. Entries saved by 2.2.x/2.3.x have no `active` key; they stay active and are written back as `"active": true` automatically, so nothing needs to be reconfigured. The documentation lightbulb of an entry keeps working while the entry is inactive.
+- **Fixed bookmark colors.** The old highlight used a `lineNumberStyle` option that VS Code does not have, so only the overview ruler was colored. The configured color now fills the gutter next to the line number of each matching line (and the overview ruler). VS Code offers no way to color the line-number text itself, so this strip is the closest supported option; it needs `editor.glyphMargin` (on by default).
+- **Marketplace icon.** `media/bookmark.svg` is rendered to `media/icon.png` (256 x 256) during packaging, because the Marketplace does not accept SVG for the extension icon. The SVG stays the source and the Activity Bar icon.
+- Performance: the search expression is compiled once per set of active texts instead of once per scan, decoration types are reused instead of recreated on every refresh, all visible editors are decorated, and changing colors, URLs, file types, the settings page layout or an inactive entry no longer rescans files.
 
 ### What's new in 2.3.0
 
@@ -56,7 +64,7 @@ Current version: **2.3.0**
 Download the VSIX package:
 
 ```text
-auto-bookmarks-2.3.0.vsix
+auto-bookmarks-2.4.0.vsix
 ```
 
 ### Install in Visual Studio Code
@@ -73,7 +81,7 @@ auto-bookmarks-2.3.0.vsix
 5. Select:
 
    ```text
-   auto-bookmarks-2.3.0.vsix
+   auto-bookmarks-2.4.0.vsix
    ```
 
 6. Wait for the installation to complete.
@@ -94,7 +102,7 @@ auto-bookmarks-2.3.0.vsix
 You can also install the VSIX from a terminal:
 
 ```bash
-code --install-extension auto-bookmarks-2.3.0.vsix
+code --install-extension auto-bookmarks-2.4.0.vsix
 ```
 
 ## Using Auto Bookmarks
@@ -122,12 +130,12 @@ Open the dedicated Auto Bookmarks settings page using either:
 
 The settings page allows you to configure:
 
-- Bookmarks: one row per search text, with its color and an optional documentation link
+- Bookmarks: one row per search text, with an **Active** checkbox, its color and an optional documentation link
 - Allowed file types
 - Case-sensitive matching
 - Maximum file size to scan
 
-Edit the **Bookmarks** table (add rows with **+ Add Bookmark**, remove them with **Delete**), then click:
+Edit the **Bookmarks** table (tick or untick **Active**, edit a text, color or link in place, add rows with **+ Add Bookmark**, remove them with **Delete**), then click:
 
 > **Save settings**
 
@@ -149,7 +157,7 @@ Then:
 
 1. Right-click the selected text.
 2. Choose **Auto Bookmarks: Add Selected Text**.
-3. The selected value is added to your **Bookmarks** list with the default color.
+3. The selected value is added to your **Bookmarks** list as an active entry with the default color. If it is already there but inactive, it is switched on again.
 4. Auto Bookmarks refreshes the detected occurrences.
 
 The context-menu command is available when text is selected in the editor.
@@ -159,17 +167,19 @@ The context-menu command is available when text is selected in the editor.
 Everything Auto Bookmarks looks for lives in one list, `autoBookmarks.documentationLinks`. Each entry is one row of the **Bookmarks** table on the settings page:
 
 - `text` - the text to find in the active file (required).
-- `color` - the highlight color used for the matching **line number** in the editor and in the editor **overview ruler** (default blue).
+- `active` - `true` (default when missing) or `false`. Only active entries are searched; inactive ones stay in the list but create no bookmarks or highlights.
+- `color` - the highlight color: it fills the **gutter next to the line number** of matching lines and is also used in the editor **overview ruler** (default blue). The line text is not colored.
 - `url` - an optional `http` or `https` documentation link.
 
 For example:
 
 ```json
 "autoBookmarks.documentationLinks": [
-    { "text": "TODO", "color": "#fbbf24" },
-    { "text": "FIXME", "color": "#f87171" },
+    { "text": "TODO", "active": true, "color": "#fbbf24" },
+    { "text": "FIXME", "active": false, "color": "#f87171" },
     {
         "text": "GlideRecord",
+        "active": true,
         "color": "#38bdf8",
         "url": "https://developer.servicenow.com/dev.do#!/reference/api"
     }
@@ -178,7 +188,17 @@ For example:
 
 Entries with a `url` also offer a lightbulb: put the cursor on an exact, case-sensitive match (`GlideRecord`, not `GlideRecordSecure` or `MyGlideRecord`) and the Quick Fix menu (`Ctrl + .`, or `Cmd + .` on macOS) shows **Open GlideRecord Documentation**. Only `http` and `https` URLs are opened. The lightbulb looks only at the text around the cursor, works in any document regardless of `autoBookmarks.fileTypes`, and has no cost on large files.
 
-Upgrading from 2.2.0 or earlier: your existing `autoBookmarks.searchTexts` and `autoBookmarks.colors` values are merged into this list automatically the first time 2.3.0 starts, then removed from your user settings.
+Upgrading from 2.2.0 or earlier: your existing `autoBookmarks.searchTexts` and `autoBookmarks.colors` values are merged into this list automatically the first time 2.3.0 or later starts, then removed from your user settings. A plain list such as `["TODO", "FIXME", "HACK"]` becomes:
+
+```json
+"autoBookmarks.documentationLinks": [
+    { "text": "TODO", "active": true },
+    { "text": "FIXME", "active": true },
+    { "text": "HACK", "active": true }
+]
+```
+
+Upgrading from 2.3.x: entries without an `active` key are written back with `"active": true` on the first start; nothing else changes.
 
 ## Manual Configuration
 
@@ -189,9 +209,9 @@ Example:
 ```json
 {
     "autoBookmarks.documentationLinks": [
-        { "text": "TODO", "color": "#fbbf24" },
-        { "text": "FIXME", "color": "#f87171" },
-        { "text": "GlideRecord", "color": "#38bdf8", "url": "https://developer.servicenow.com/dev.do#!/reference/api" }
+        { "text": "TODO", "active": true, "color": "#fbbf24" },
+        { "text": "FIXME", "active": true, "color": "#f87171" },
+        { "text": "GlideRecord", "active": true, "color": "#38bdf8", "url": "https://developer.servicenow.com/dev.do#!/reference/api" }
     ],
     "autoBookmarks.fileTypes": [
         ".js",
@@ -211,7 +231,7 @@ To allow Auto Bookmarks to scan files regardless of extension, use an empty file
 
 ## Available Settings
 
-- `autoBookmarks.documentationLinks` - The bookmark list: `text` to find, optional `color` and optional `url` (shows an *Open Documentation* lightbulb).
+- `autoBookmarks.documentationLinks` - The bookmark list: `text` to find, `active` (default `true`), optional `color` and optional `url` (shows an *Open Documentation* lightbulb).
 - `autoBookmarks.fileTypes` - File extensions that Auto Bookmarks is allowed to scan.
 - `autoBookmarks.caseSensitive` - Controls whether matching is case-sensitive.
 - `autoBookmarks.maxFileSizeMB` - Largest file size in MB that Auto Bookmarks will scan (default `20`, `0` disables the limit).
@@ -261,10 +281,14 @@ If you are upgrading from an older development build and encounter UI problems, 
 
 Check the following:
 
-- The text is present in the Bookmarks list (`autoBookmarks.documentationLinks`).
+- The text is present in the Bookmarks list (`autoBookmarks.documentationLinks`) and its **Active** box is ticked.
 - The current file extension is allowed by `autoBookmarks.fileTypes`.
 - `autoBookmarks.caseSensitive` matches the capitalization you expect.
 - Run **Auto Bookmarks: Refresh** from the Command Palette.
+
+### The colored gutter strip does not show
+
+The color is drawn in the editor's glyph margin, next to the line numbers. Make sure `editor.glyphMargin` is `true` (the default). Only active bookmarks are drawn, and only in files allowed by `autoBookmarks.fileTypes`.
 
 ### Nothing is found in a large file
 
@@ -283,35 +307,45 @@ The badge only appears when the active supported file contains at least one conf
 
 ## Development
 
-The extension has no dependencies and no build step, so there is nothing to install. Package it with `vsce`:
+Install the development tools (an SVG renderer for the icon and `vsce`), run the tests and package:
 
 ```bash
-npx @vscode/vsce package --allow-missing-repository
+npm install
+npm test           # tests against a stub of the vscode module
+npm run package    # renders media/icon.png from media/bookmark.svg, then runs vsce package
 ```
 
 The package should produce:
 
 ```text
-auto-bookmarks-2.3.0.vsix
+auto-bookmarks-2.4.0.vsix
 ```
 
-`--allow-missing-repository` skips the prompt about the missing `repository` field in `package.json`; add that field if you prefer to drop the flag.
+The extension itself has no runtime dependencies. `media/bookmark.svg` is the source asset and the Activity Bar icon; `scripts/generate-icon.js` renders it to `media/icon.png` (256 x 256, on a dark plate so the light-grey glyph is visible on the Marketplace page) because the Marketplace does not accept SVG for the `icon` field. The PNG is regenerated on every `vsce package` / `vsce publish` through the `vscode:prepublish` script, and the committed copy is kept if the renderer is not installed.
 
 ## Repository Structure
 
 ```text
 AutoBookmarks/
 ├── media/
-│   └── bookmark.svg
+│   ├── bookmark.svg
+│   └── icon.png
+├── scripts/
+│   └── generate-icon.js
+├── test/
+│   └── extension.test.js
+├── .gitignore
+├── .vscodeignore
 ├── CHANGELOG.md
 ├── LICENSE
 ├── README.md
-├── auto-bookmarks-2.3.0.vsix
+├── auto-bookmarks-2.4.0.vsix
 ├── extension.js
+├── package-lock.json
 └── package.json
 ```
 
-The `media/bookmark.svg` file is used for the Auto Bookmarks Activity Bar icon, and `auto-bookmarks-2.3.0.vsix` is the ready-to-install package of the current version.
+`media/bookmark.svg` is the Activity Bar icon and the source of the Marketplace icon `media/icon.png`. `auto-bookmarks-2.4.0.vsix` is the ready-to-install package of the current version.
 
 ## License
 

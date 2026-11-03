@@ -60,24 +60,32 @@ function buildMatcher(markers, caseSensitive){
   const norm = m => caseSensitive ? m : m.toLowerCase();
   const labels = [...new Set(markers.filter(m => typeof m === 'string' && m))]; // configured order, empties/duplicates dropped
   if (!labels.length) return null;
-  const groupByLabel = new Map(labels.map(label => [label, { marker: label, hits: [] }]));
   const keys = [], keyIndex = new Map();
   for (const label of labels) {
     const n = norm(label);
     let i = keyIndex.get(n);
-    if (i === undefined) { i = keys.length; keyIndex.set(n, i); keys.push({ norm: n, text: label, length: label.length, groups: [], shorter: [] }); }
-    keys[i].groups.push(groupByLabel.get(label));
+    if (i === undefined) { i = keys.length; keyIndex.set(n, i); keys.push({ norm: n, text: label, length: label.length, labels: [], shorter: [] }); }
+    keys[i].labels.push(label);
   }
   // "shorter" = other markers that are a prefix of this one. The regex only reports the longest marker at a
   // position, so these are credited as well, which keeps "TODO" and "TODO:" both matching like before.
   keys.forEach((k, i) => keys.forEach((o, j) => { if (i !== j && o.norm.length < k.norm.length && k.norm.startsWith(o.norm)) k.shorter.push(j); }));
   const source = keys.map(k => k.text).sort((a, b) => b.length - a.length).map(escapeRegex).join('|');
-  return { regex: new RegExp(source, caseSensitive ? 'g' : 'gi'), keys, keyIndex, labels, groupByLabel };
+  return { regex: new RegExp(source, caseSensitive ? 'g' : 'gi'), keys, keyIndex, labels };
+}
+
+// The RegExp is compiled once per (active markers, case mode) and reused for every document version; it holds no per-scan state.
+let matcherCache = null;
+function getMatcher(markers, caseSensitive){
+  const key = JSON.stringify([markers, caseSensitive]);
+  if (!matcherCache || matcherCache.key !== key) matcherCache = { key, matcher: buildMatcher(markers, caseSensitive) };
+  return matcherCache.matcher;
 }
 
 function runScan(doc, matcher, caseSensitive){
   const text = doc.getText();
-  const { regex, keys, keyIndex, labels, groupByLabel } = matcher;
+  const { regex, keys, keyIndex, labels } = matcher;
+  const groupByLabel = new Map(labels.map(label => [label, { marker: label, hits: [] }])); // fresh result groups for every scan
   const nextFree = new Array(keys.length).fill(0); // a marker never matches inside its own previous match (as indexOf + length did)
   const file = doc.fileName;
   let lastLine = -1, lastPreview = '';
@@ -101,7 +109,7 @@ function runScan(doc, matcher, caseSensitive){
           lastPreview = doc.lineAt(pos.line).text.trim().substring(0, PREVIEW_MAX_LENGTH);
         }
       }
-      for (const group of keys[kid].groups) group.hits.push({ marker: group.marker, file, line: pos.line, character: pos.character, preview: lastPreview });
+      for (const label of keys[kid].labels) groupByLabel.get(label).hits.push({ marker: label, file, line: pos.line, character: pos.character, preview: lastPreview });
     }
   }
   return labels.map(label => groupByLabel.get(label)).filter(group => group.hits.length);
@@ -115,12 +123,16 @@ function scanDocument(doc){
   if (!exceedsSizeLimit(doc)) {
     const c = config();
     const caseSensitive = c.get('caseSensitive', true);
-    const matcher = buildMatcher(getBookmarks().markers, caseSensitive);
+    const matcher = getMatcher(getBookmarks().markers, caseSensitive); // markers = ACTIVE entries only
     if (matcher) result = runScan(doc, matcher, caseSensitive);
   }
   cacheSet(key, result);
   return result;
 }
+
+// What a scan result depends on. Colors, URLs, file types and inactive entries are not part of it, so changing them never rescans.
+let scanKey = null;
+const currentScanKey = () => JSON.stringify([getBookmarks().markers, config().get('caseSensitive', true), maxFileSizeMB()]);
 
 function groups(){
  const ed=vscode.window.activeTextEditor;if(!ed||!allowed(ed.document))return [];
@@ -146,7 +158,9 @@ function charBefore(s, i){                        // code point that ends at ind
 function charAfter(s, i){ return String.fromCodePoint(s.codePointAt(i)); }
 const isWordChar = ch => WORD_CHAR.test(ch);
 
-// autoBookmarks.documentationLinks is the one list behind everything: [{ text, color?, url? }].
+// autoBookmarks.documentationLinks is the one list behind everything: [{ text, active?, color?, url? }].
+//   active -> false switches the entry off for scanning (no bookmarks, badge or highlight) but keeps it stored. A missing/non-boolean
+//             value counts as true, so lists saved by 2.2.x/2.3.x keep working. The documentation lightbulb does not depend on it.
 //   text  -> searched for in the active file (bookmarks, tree, badge, line-number highlight)
 //   color -> highlight color (default blue)
 //   url   -> optional; when it is an http(s) link the cursor on an exact match offers "Open <text> Documentation"
@@ -160,6 +174,7 @@ function getBookmarks(){
     const url = typeof item.url === 'string' ? item.url.trim() : '';
     entries.push({
       text: item.text,
+      active: typeof item.active === 'boolean' ? item.active : true,
       color: typeof item.color === 'string' && item.color.trim() ? item.color.trim() : DEFAULT_COLOR,
       url: DOC_URL.test(url) ? url : undefined,            // anything that is not an http(s) link is ignored
       leadWord: isWordChar(charAfter(item.text, 0)), trailWord: isWordChar(charBefore(item.text, item.text.length)),
@@ -167,7 +182,7 @@ function getBookmarks(){
   }
   const links = entries.filter(e => e.url);
   bookmarkCache = {
-    markers: entries.map(e => e.text),
+    markers: entries.filter(e => e.active).map(e => e.text), // only active entries take part in scanning
     colors: new Map(entries.map(e => [e.text, e.color])),
     links, maxLinkLength: links.reduce((m, e) => Math.max(m, e.text.length), 0),
   };
@@ -180,7 +195,7 @@ function sanitizeBookmarks(list){
   for (const x of list) {
     if (!x || typeof x.text !== 'string') continue;
     const text = x.text.trim(); if (!text || seen.has(text)) continue; seen.add(text);
-    const entry = { text };
+    const entry = { text, active: x.active !== false };
     if (typeof x.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(x.color.trim())) entry.color = x.color.trim().toLowerCase();
     const url = typeof x.url === 'string' ? x.url.trim() : ''; if (DOC_URL.test(url)) entry.url = url;
     out.push(entry);
@@ -192,6 +207,8 @@ function sanitizeBookmarks(list){
 const LEGACY_DEFAULT_TEXTS = ['TODO', 'FIXME', 'GlideRecord'];
 const LEGACY_DEFAULT_COLORS = { TODO: '#fbbf24', FIXME: '#f87171', GlideRecord: '#38bdf8' };
 const MIGRATION_FLAG = 'autoBookmarks.bookmarksUnified';
+// Puts "active" right after "text"; a missing or non-boolean flag becomes true.
+function withActive(entry){ const { text, active, ...rest } = entry; return { text, active: typeof active === 'boolean' ? active : true, ...rest }; }
 async function migrateLegacySettings(context){
   if (context.globalState.get(MIGRATION_FLAG)) return;
   const c = config();
@@ -208,18 +225,31 @@ async function migrateLegacySettings(context){
     for (const item of Array.isArray(userLinks) ? userLinks : []) {                                       // 2.2.0 documentation links first
       if (!item || typeof item.text !== 'string' || seen.has(item.text)) continue;
       seen.add(item.text);
-      merged.push(item.color || !colors[item.text] ? { ...item } : { ...item, color: colors[item.text] });
+      merged.push(withActive(item.color || !colors[item.text] ? { ...item } : { ...item, color: colors[item.text] }));
     }
     for (const text of texts) {                                                                           // then every old search text
       if (typeof text !== 'string' || !text.trim() || seen.has(text)) continue;
       seen.add(text);
-      merged.push(colors[text] ? { text, color: colors[text] } : { text });
+      merged.push(withActive(colors[text] ? { text, color: colors[text] } : { text }));
     }
     await c.update('documentationLinks', merged, vscode.ConfigurationTarget.Global);
     if (legacyTexts !== undefined) await c.update('searchTexts', undefined, vscode.ConfigurationTarget.Global);
     if (legacyColors !== undefined) await c.update('colors', undefined, vscode.ConfigurationTarget.Global);
   }
   await context.globalState.update(MIGRATION_FLAG, true);
+}
+
+// 2.4.0: every bookmark entry carries "active". Entries saved by 2.2.x/2.3.x have no such key and stay active.
+// getBookmarks() already treats a missing flag as true, so this write-back only makes the setting explicit. Idempotent:
+// once every entry has a boolean there is nothing left to write.
+const needsActive = x => x && typeof x === 'object' && typeof x.text === 'string' && typeof x.active !== 'boolean';
+async function migrateActiveFlags(){
+  const c = config(), i = c.inspect('documentationLinks');
+  if (!i) return;
+  for (const [target, value] of [[vscode.ConfigurationTarget.Global, i.globalValue], [vscode.ConfigurationTarget.Workspace, i.workspaceValue]]) {
+    if (!Array.isArray(value) || !value.some(needsActive)) continue;
+    try { await c.update('documentationLinks', value.map(x => (needsActive(x) ? withActive(x) : x)), target); } catch { /* read-only settings: the in-memory default still applies */ }
+  }
 }
 
 // True when `entry.text` occurs in `s` around the selection [selStart, selEnd] as a whole word:
@@ -262,23 +292,71 @@ async function openDocumentation(url){
   try { return await vscode.env.openExternal(vscode.Uri.parse(url.trim())); } catch { return false; } // no error popups
 }
 
+// ---------------------------------------------------------------------------
+// Decorations. VS Code has no API for the background of the line-number text itself (the old `lineNumberStyle` option does not
+// exist and was ignored). The supported way to color the gutter is a glyph-margin icon: a solid square stretched over the
+// whole gutter cell (`gutterIconSize: 'cover'`) gives each matching line a colored strip next to its line number. The line
+// text is never touched. Needs `editor.glyphMargin` (default true). The overview ruler uses the same color.
+// ---------------------------------------------------------------------------
+const CSS_COLOR = /^(#[0-9a-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([0-9.,%\s]+\))$/i; // the value ends up inside a generated SVG
+const safeColor = c => (typeof c === 'string' && CSS_COLOR.test(c.trim()) ? c.trim() : DEFAULT_COLOR);
+function gutterIconUri(color){
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" preserveAspectRatio="none">' +
+    `<rect width="16" height="16" fill="${color}"/></svg>`;
+  return vscode.Uri.parse(`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`);
+}
+
+class DecorationManager {
+  constructor(){ this.types = new Map(); } // marker -> { color, type }. Types are reused between refreshes.
+  typeFor(marker, color){
+    const known = this.types.get(marker);
+    if (known && known.color === color) return known.type;
+    if (known) known.type.dispose();
+    const type = vscode.window.createTextEditorDecorationType({
+      isWholeLine: true,
+      gutterIconPath: gutterIconUri(color),
+      gutterIconSize: 'cover',
+      overviewRulerColor: color,
+      overviewRulerLane: vscode.OverviewRulerLane.Left,
+    });
+    this.types.set(marker, { color, type });
+    return type;
+  }
+  apply(editors, bookmarks, scanFor){
+    const live = new Set(bookmarks.markers); // active entries only: disabled or removed ones lose their decoration
+    for (const [marker, entry] of this.types) if (!live.has(marker)) { entry.type.dispose(); this.types.delete(marker); }
+    for (const ed of editors) {
+      const byMarker = new Map(scanFor(ed.document).map(g => [g.marker, g]));
+      for (const marker of bookmarks.markers) {
+        const group = byMarker.get(marker);
+        if (group) {
+          const ranges = []; let prevLine = -1; // one range per line is enough: several hits on a line look identical
+          for (const hit of group.hits) if (hit.line !== prevLine) { prevLine = hit.line; ranges.push(new vscode.Range(hit.line, 0, hit.line, 0)); }
+          ed.setDecorations(this.typeFor(marker, safeColor(bookmarks.colors.get(marker))), ranges);
+        } else if (this.types.has(marker)) ed.setDecorations(this.types.get(marker).type, []);
+      }
+    }
+  }
+  dispose(){ for (const { type } of this.types.values()) type.dispose(); this.types.clear(); }
+}
+
 class TreeProvider { constructor(){this.e=new vscode.EventEmitter();this.onDidChangeTreeData=this.e.event;} refresh(){this.e.fire();} getChildren(x){return x?.hits||groups();} getTreeItem(x){if(x.hits)return new vscode.TreeItem(`${x.marker} (${x.hits.length})`,vscode.TreeItemCollapsibleState.Expanded);const t=new vscode.TreeItem(`${path.basename(x.file)}:${x.line+1}`);t.description=x.preview;t.tooltip=x.preview;t.command={command:'autoBookmarks.reveal',title:'Reveal',arguments:[x]};return t;} }
 
 function settingsHtml(webview){
  const c=config(), types=c.get('fileTypes',[]), cs=c.get('caseSensitive',true), maxMb=maxFileSizeMB();
  const rawBookmarks=c.get('documentationLinks',[]);
- const bookmarks=(Array.isArray(rawBookmarks)?rawBookmarks:[]).filter(x=>x&&typeof x==='object').map(x=>({text:typeof x.text==='string'?x.text:'',color:typeof x.color==='string'?x.color:'',url:typeof x.url==='string'?x.url:''}));
+ const bookmarks=(Array.isArray(rawBookmarks)?rawBookmarks:[]).filter(x=>x&&typeof x==='object').map(x=>({text:typeof x.text==='string'?x.text:'',color:typeof x.color==='string'?x.color:'',url:typeof x.url==='string'?x.url:'',active:typeof x.active==='boolean'?x.active:true}));
  const model=JSON.stringify({types,cs,maxMb,bookmarks}).replace(/</g,'\\u003c');
  return `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
  body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:24px;max-width:850px;margin:auto}h1{font-size:22px}section{border:1px solid var(--vscode-panel-border);padding:16px;margin:14px 0;border-radius:8px}label{display:block;font-weight:600;margin:8px 0}textarea,input[type=text],input[type=number]{box-sizing:border-box;width:100%;padding:8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border)}.actions{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:8px;background:var(--vscode-editor-background);padding:10px}button{padding:8px 14px;border:0;border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer}small{color:var(--vscode-descriptionForeground)}#status{margin-right:auto;color:var(--vscode-testing-iconPassed)}
- .bmrow{display:grid;grid-template-columns:minmax(0,1.2fr) 44px 92px minmax(0,2fr) 80px;gap:10px;align-items:center;margin:8px 0}.bmhead{font-weight:600;margin-bottom:0}.bmhead .colorhead{grid-column:span 2}input[type=color]{width:44px;height:32px;padding:0;border:1px solid var(--vscode-input-border);background:transparent}#bmErr{color:var(--vscode-errorForeground);margin:6px 0}
- </style></head><body><h1>Auto Bookmarks Settings</h1><section><label>Bookmarks</label><small>Text to find in the active file, its highlight color, and an optional documentation link. With a link, the lightbulb offers "Open Documentation" when the cursor is on an exact match.</small><div class="bmrow bmhead"><span>Search Text</span><span class="colorhead">Color</span><span>Documentation URL (optional)</span><span></span></div><div id="bookmarks"></div><div id="bmErr"></div><button id="addBm" type="button">+ Add Bookmark</button></section><section><label for="types">File types</label><small>Comma separated. Empty means all file types.</small><input id="types" type="text"></section><section><label><input id="cs" type="checkbox"> Case sensitive</label></section><section><label for="maxMb">Maximum file size (MB)</label><small>Larger files are not scanned. 0 disables the limit.</small><input id="maxMb" type="number" min="0" step="any"></section><div class="actions"><span id="status"></span><button id="reload">Discard</button><button id="save">Save settings</button></div><script>
+ .bmrow{display:grid;grid-template-columns:78px minmax(0,1.2fr) 44px 92px minmax(0,2fr) 80px;gap:10px;align-items:center;margin:8px 0}.bmhead{font-weight:600;margin-bottom:0}.bmhead .colorhead{grid-column:span 2}input[type=color]{width:44px;height:32px;padding:0;border:1px solid var(--vscode-input-border);background:transparent}#bmErr{color:var(--vscode-errorForeground);margin:6px 0}.bmrow label.act{display:flex;align-items:center;gap:4px;font-weight:400;margin:0}.bmrow.off .bm-text{opacity:.55;text-decoration:line-through}
+ </style></head><body><h1>Auto Bookmarks Settings</h1><section><label>Bookmarks</label><small>Text to find in the active file, its highlight color, and an optional documentation link. Untick Active to stop searching for a text without deleting it. With a link, the lightbulb offers "Open Documentation" when the cursor is on an exact match.</small><div class="bmrow bmhead"><span></span><span>Search Text</span><span class="colorhead">Color</span><span>Documentation URL (optional)</span><span></span></div><div id="bookmarks"></div><div id="bmErr"></div><button id="addBm" type="button">+ Add Bookmark</button></section><section><label for="types">File types</label><small>Comma separated. Empty means all file types.</small><input id="types" type="text"></section><section><label><input id="cs" type="checkbox"> Case sensitive</label></section><section><label for="maxMb">Maximum file size (MB)</label><small>Larger files are not scanned. 0 disables the limit.</small><input id="maxMb" type="number" min="0" step="any"></section><div class="actions"><span id="status"></span><button id="reload">Discard</button><button id="save">Save settings</button></div><script>
  const vscode=acquireVsCodeApi();let model=${model};
  const DEFAULT_COLOR='#3b82f6',HEX=/^#[0-9a-fA-F]{6}$/;
- function row(b){const r=document.createElement('div');r.className='bmrow';const t=document.createElement('input');t.type='text';t.className='bm-text';t.placeholder='GlideRecord';t.value=b.text||'';const p=document.createElement('input');p.type='color';p.className='bm-color';p.value=HEX.test(b.color||'')?b.color:DEFAULT_COLOR;const h=document.createElement('input');h.type='text';h.className='bm-hex';h.value=p.value;const u=document.createElement('input');u.type='text';u.className='bm-url';u.placeholder='https://... (optional)';u.value=b.url||'';const d=document.createElement('button');d.type='button';d.textContent='Delete';d.onclick=()=>r.remove();p.oninput=()=>{h.value=p.value};h.oninput=()=>{if(HEX.test(h.value))p.value=h.value};r.append(t,p,h,u,d);return r;}
+ function row(b){const r=document.createElement('div');r.className='bmrow';const al=document.createElement('label');al.className='act';const a=document.createElement('input');a.type='checkbox';a.className='bm-active';a.checked=b.active!==false;a.onchange=()=>r.classList.toggle('off',!a.checked);r.classList.toggle('off',!a.checked);al.append(a,' Active');const t=document.createElement('input');t.type='text';t.className='bm-text';t.placeholder='GlideRecord';t.value=b.text||'';const p=document.createElement('input');p.type='color';p.className='bm-color';p.value=HEX.test(b.color||'')?b.color:DEFAULT_COLOR;const h=document.createElement('input');h.type='text';h.className='bm-hex';h.value=p.value;const u=document.createElement('input');u.type='text';u.className='bm-url';u.placeholder='https://... (optional)';u.value=b.url||'';const d=document.createElement('button');d.type='button';d.textContent='Delete';d.onclick=()=>r.remove();p.oninput=()=>{h.value=p.value};h.oninput=()=>{if(HEX.test(h.value))p.value=h.value};r.append(al,t,p,h,u,d);return r;}
  function render(m){model=m;document.getElementById('types').value=m.types.join(', ');document.getElementById('cs').checked=m.cs;document.getElementById('maxMb').value=m.maxMb;const box=document.getElementById('bookmarks');box.innerHTML='';m.bookmarks.forEach(b=>box.append(row(b)));}
- function collect(){const out=[],seen=new Set();let bad='';document.querySelectorAll('#bookmarks .bmrow').forEach(r=>{const text=r.querySelector('.bm-text').value.trim(),url=r.querySelector('.bm-url').value.trim(),color=r.querySelector('.bm-color').value;if(!text&&!url)return;if(!text){bad=bad||'Each row needs a search text.';return;}if(seen.has(text)){bad=bad||'Duplicate search text: '+text;return;}seen.add(text);if(url&&!/^https?:[/][/]/i.test(url)){bad=bad||'Documentation URLs must start with http:// or https:// ('+text+')';return;}const e={text,color};if(url)e.url=url;out.push(e);});document.getElementById('bmErr').textContent=bad;return bad?null:out;}
- document.getElementById('addBm').onclick=()=>{const r=row({});document.getElementById('bookmarks').append(r);r.querySelector('input').focus();};
+ function collect(){const out=[],seen=new Set();let bad='';document.querySelectorAll('#bookmarks .bmrow').forEach(r=>{const text=r.querySelector('.bm-text').value.trim(),url=r.querySelector('.bm-url').value.trim(),color=r.querySelector('.bm-color').value;if(!text&&!url)return;if(!text){bad=bad||'Each row needs a search text.';return;}if(seen.has(text)){bad=bad||'Duplicate search text: '+text;return;}seen.add(text);if(url&&!/^https?:[/][/]/i.test(url)){bad=bad||'Documentation URLs must start with http:// or https:// ('+text+')';return;}const e={text,active:r.querySelector('.bm-active').checked,color};if(url)e.url=url;out.push(e);});document.getElementById('bmErr').textContent=bad;return bad?null:out;}
+ document.getElementById('addBm').onclick=()=>{const r=row({});document.getElementById('bookmarks').append(r);r.querySelector('.bm-text').focus();};
  render(model);
  document.getElementById('save').onclick=()=>{const bookmarks=collect();if(!bookmarks)return;const fileTypes=document.getElementById('types').value.split(',').map(x=>x.trim()).filter(Boolean).map(x=>x.startsWith('.')?x.toLowerCase():'.'+x.toLowerCase());const mb=parseFloat(document.getElementById('maxMb').value);vscode.postMessage({type:'save',fileTypes,caseSensitive:document.getElementById('cs').checked,maxFileSizeMB:Number.isFinite(mb)&&mb>=0?mb:20,documentationLinks:bookmarks});};
  document.getElementById('reload').onclick=()=>vscode.postMessage({type:'reload'});
@@ -287,8 +365,8 @@ function settingsHtml(webview){
 }
 function activate(context){
  const tree=new TreeProvider();
- let decorations=[];
- function clearDecorations(){ for(const d of decorations){ try{ d.dispose(); }catch{} } decorations=[]; }
+ const decorations=new DecorationManager();
+ context.subscriptions.push({dispose(){ decorations.dispose(); }});
 
  // Debounced refresh: bursts of events (typing, tab switches, settings saves) collapse into one rebuild.
  let refreshTimer;
@@ -302,43 +380,27 @@ function activate(context){
  function refreshNow(){ clearTimeout(refreshTimer); tree.refresh(); updateDecorations(); }
  context.subscriptions.push({dispose(){ clearTimeout(refreshTimer); }});
  function updateDecorations(){
-  clearDecorations();
   const data=groups(); // cached per document version: the tree, the badge and the decorations share one scan
   const count=data.reduce((total,group)=>total+group.hits.length,0);
   treeView.badge=count>0?{value:count,tooltip:`${count} bookmark match${count===1?'':'es'}`}:undefined;
-  const ed=vscode.window.activeTextEditor; if(!ed || !allowed(ed.document)) return;
-  const colors=getBookmarks().colors;
-  for(const group of data){
-   const color=colors.get(group.marker) || DEFAULT_COLOR;
-   const decoration=vscode.window.createTextEditorDecorationType({
-    isWholeLine:false,
-    overviewRulerColor:color,
-    overviewRulerLane:vscode.OverviewRulerLane.Left,
-    light:{lineNumberStyle:{color}},
-    dark:{lineNumberStyle:{color}}
-   });
-   decorations.push(decoration);
-   const ranges=[]; let prevLine=-1; // one range per line is enough: several hits on a line look identical
-   for(const hit of group.hits){ if(hit.line!==prevLine){ prevLine=hit.line; ranges.push(new vscode.Range(hit.line,0,hit.line,0)); } }
-   ed.setDecorations(decoration, ranges);
-  }
+  decorations.apply(vscode.window.visibleTextEditors,getBookmarks(),doc=>allowed(doc)?scanDocument(doc):[]);
  }
  const treeView=vscode.window.createTreeView('autoBookmarksView',{treeDataProvider:tree}); context.subscriptions.push(treeView);
  let panel;
- const openSettings=()=>{if(panel){panel.reveal();panel.webview.html=settingsHtml(panel.webview);return;}panel=vscode.window.createWebviewPanel('autoBookmarksSettings','Auto Bookmarks Settings',vscode.ViewColumn.Active,{enableScripts:true,retainContextWhenHidden:true});panel.webview.html=settingsHtml(panel.webview);panel.webview.onDidReceiveMessage(async m=>{if(m.type==='save'){const c=config();await c.update('fileTypes',m.fileTypes,vscode.ConfigurationTarget.Global);await c.update('caseSensitive',m.caseSensitive,vscode.ConfigurationTarget.Global);if(typeof m.maxFileSizeMB==='number'&&Number.isFinite(m.maxFileSizeMB)&&m.maxFileSizeMB>=0)await c.update('maxFileSizeMB',m.maxFileSizeMB,vscode.ConfigurationTarget.Global);if(Array.isArray(m.documentationLinks))await c.update('documentationLinks',sanitizeBookmarks(m.documentationLinks),vscode.ConfigurationTarget.Global);scheduleRefresh();panel.webview.postMessage({type:'saved'});vscode.window.showInformationMessage('Auto Bookmarks settings saved globally for your VS Code user profile.');}else if(m.type==='reload'){panel.webview.html=settingsHtml(panel.webview);}},undefined,context.subscriptions);panel.onDidDispose(()=>panel=undefined,undefined,context.subscriptions);};
+ const openSettings=()=>{if(panel){panel.reveal();panel.webview.html=settingsHtml(panel.webview);return;}panel=vscode.window.createWebviewPanel('autoBookmarksSettings','Auto Bookmarks Settings',vscode.ViewColumn.Active,{enableScripts:true,retainContextWhenHidden:true});panel.webview.html=settingsHtml(panel.webview);panel.webview.onDidReceiveMessage(async m=>{if(m.type==='save'){const c=config();const put=async(k,v)=>{if(JSON.stringify(c.get(k))!==JSON.stringify(v))await c.update(k,v,vscode.ConfigurationTarget.Global);};await put('fileTypes',m.fileTypes);await put('caseSensitive',m.caseSensitive);if(typeof m.maxFileSizeMB==='number'&&Number.isFinite(m.maxFileSizeMB)&&m.maxFileSizeMB>=0)await put('maxFileSizeMB',m.maxFileSizeMB);if(Array.isArray(m.documentationLinks))await put('documentationLinks',sanitizeBookmarks(m.documentationLinks));scheduleRefresh();panel.webview.postMessage({type:'saved'});vscode.window.showInformationMessage('Auto Bookmarks settings saved globally for your VS Code user profile.');}else if(m.type==='reload'){panel.webview.html=settingsHtml(panel.webview);}},undefined,context.subscriptions);panel.onDidDispose(()=>panel=undefined,undefined,context.subscriptions);};
  context.subscriptions.push(
   vscode.commands.registerCommand('autoBookmarks.openSettings',openSettings),
   vscode.commands.registerCommand('autoBookmarks.refresh',()=>{scanCache.clear();refreshNow();}),
-  vscode.commands.registerCommand('autoBookmarks.addSelectedText',async()=>{const ed=vscode.window.activeTextEditor;if(!ed||ed.selection.isEmpty){vscode.window.showWarningMessage('Select text in the editor first.');return;}const value=ed.document.getText(ed.selection).trim();if(!value)return;const c=config(), raw=c.get('documentationLinks',[]), arr=Array.isArray(raw)?raw:[];if(arr.some(x=>x&&x.text===value)){vscode.window.showInformationMessage(`Auto Bookmarks already contains: ${value}`);return;}await c.update('documentationLinks',[...arr,{text:value,color:DEFAULT_COLOR}],vscode.ConfigurationTarget.Global);scheduleRefresh();vscode.window.showInformationMessage(`Added Auto Bookmark search text: ${value}`);}),
+  vscode.commands.registerCommand('autoBookmarks.addSelectedText',async()=>{const ed=vscode.window.activeTextEditor;if(!ed||ed.selection.isEmpty){vscode.window.showWarningMessage('Select text in the editor first.');return;}const value=ed.document.getText(ed.selection).trim();if(!value)return;const c=config(), raw=c.get('documentationLinks',[]), arr=Array.isArray(raw)?raw:[];const found=arr.find(x=>x&&x.text===value);if(found&&found.active!==false){vscode.window.showInformationMessage(`Auto Bookmarks already contains: ${value}`);return;}if(found){await c.update('documentationLinks',arr.map(x=>x===found?withActive({...x,active:true}):x),vscode.ConfigurationTarget.Global);vscode.window.showInformationMessage(`Re-enabled Auto Bookmark search text: ${value}`);return;}await c.update('documentationLinks',[...arr,{text:value,active:true,color:DEFAULT_COLOR}],vscode.ConfigurationTarget.Global);scheduleRefresh();vscode.window.showInformationMessage(`Added Auto Bookmark search text: ${value}`);}),
   vscode.commands.registerCommand('autoBookmarks.reveal',async x=>{const d=await vscode.workspace.openTextDocument(x.file),ed=await vscode.window.showTextDocument(d);const p=new vscode.Position(x.line,x.character);ed.selection=new vscode.Selection(p,p);ed.revealRange(new vscode.Range(p,p),vscode.TextEditorRevealType.InCenter);}),
   vscode.commands.registerCommand(DOC_COMMAND,openDocumentation),
   vscode.languages.registerCodeActionsProvider(DOC_SELECTOR,new DocumentationLinkProvider(),{providedCodeActionKinds:DocumentationLinkProvider.providedCodeActionKinds}),
   vscode.window.onDidChangeActiveTextEditor(scheduleRefresh),
+  vscode.window.onDidChangeVisibleTextEditors(scheduleRefresh),
   vscode.workspace.onDidChangeTextDocument(e=>{
    if(!e.contentChanges.length) return; // dirty-flag changes etc.: same text, same cache entry, nothing to redo
    invalidateDocument(e.document.uri);
-   const ed=vscode.window.activeTextEditor;
-   if(ed && e.document===ed.document) scheduleRefresh();
+   if(vscode.window.visibleTextEditors.some(ed=>ed.document===e.document)) scheduleRefresh();
   }),
   vscode.workspace.onDidCloseTextDocument(doc=>{ invalidateDocument(doc.uri); oversizedNotified.delete(doc.uri.toString()); }),
   vscode.workspace.onDidChangeConfiguration(e=>{
@@ -346,15 +408,17 @@ function activate(context){
    if(e.affectsConfiguration('autoBookmarks.documentationLinks')) bookmarkCache=null;
    // the bookmark list (texts, colors, links) and the scan options decide what is found and how it is drawn
    if(['documentationLinks','fileTypes','caseSensitive','maxFileSizeMB'].some(k=>e.affectsConfiguration('autoBookmarks.'+k))){
-    scanCache.clear();
+    const key=currentScanKey();
+    if(key!==scanKey){ scanKey=key; scanCache.clear(); } // active markers / case mode / size limit changed: results are stale
     if(e.affectsConfiguration('autoBookmarks.maxFileSizeMB')) oversizedNotified.clear();
-    scheduleRefresh();
+    scheduleRefresh(); // otherwise cached results are reused and only the view and decorations are redrawn
    }
    if(panel)panel.webview.html=settingsHtml(panel.webview);
   })
  );
+ scanKey=currentScanKey();
  scheduleRefresh();
- migrateLegacySettings(context).catch(()=>{});
+ migrateLegacySettings(context).catch(()=>{}).then(migrateActiveFlags).catch(()=>{});
  // Open custom settings from the title action available via Command Palette.
 }
-module.exports={activate,deactivate(){scanCache.clear();oversizedNotified.clear();bookmarkCache=null;}};
+module.exports={activate,deactivate(){scanCache.clear();oversizedNotified.clear();bookmarkCache=null;matcherCache=null;}};

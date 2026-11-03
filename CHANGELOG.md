@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.4.0
+- Added an **Active** checkbox per bookmark. Entries of `autoBookmarks.documentationLinks` now have an `active` flag (`{ "text": "TODO", "active": true }`). Inactive entries are not searched, create no bookmarks, badge count or highlights, and stay saved. The documentation lightbulb of an entry does not depend on `active`.
+- Migration: entries without `active` (lists from 2.2.x/2.3.x) count as active and are written back as `"active": true` once; the 2.3.0 merge of the legacy `searchTexts`/`colors` settings now writes `active: true` as well. Nothing has to be reconfigured.
+- Fixed bookmark colors: the non-existent `lineNumberStyle` option was removed. The configured color now fills the gutter next to the line number of matching lines (glyph-margin decoration) and the overview ruler; the line text is never colored. Needs `editor.glyphMargin` (default on). Colors that are not valid CSS colors fall back to the default blue.
+- The settings page shows an **Active** checkbox in every row (inactive rows are dimmed) and writes only the settings that actually changed.
+- **Add Selected Text** adds an active entry, or switches an existing inactive entry back on.
+- Marketplace icon: `media/icon.png` (256 x 256) is generated from `media/bookmark.svg` during packaging (`npm run icon`, run automatically by `vsce package`). Added `icon`, `galleryBanner` and `repository` to `package.json`.
+- Performance: the search RegExp is compiled once per set of active texts and case mode (not once per scanned document version); decoration types are reused between refreshes instead of being recreated; all visible editors are decorated; changing colors, URLs, file types or an inactive entry no longer clears the scan cache or rescans.
+- Added tests (`npm test`) and a `.vscodeignore` so tests, scripts and dev dependencies stay out of the VSIX.
+
 ## 2.3.0
 - One list for everything: the settings page now has a single **Bookmarks** section (search text, color and optional documentation link per row) instead of separate *Search texts*, *Bookmark colors* and *Documentation Links* sections.
 - Bookmark scanning, line-number colors and the documentation lightbulb all read `autoBookmarks.documentationLinks`. Each entry has a `text`, an optional `color` and an optional `url`.
