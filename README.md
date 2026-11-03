@@ -11,7 +11,7 @@ It is useful for quickly navigating recurring code patterns such as `TODO`, `FIX
 - Groups detected occurrences by search text.
 - Shows the number of matches for each bookmark group.
 - Click an occurrence to navigate directly to its source line.
-- Colors the **gutter next to the line number** of every matching line (one color per bookmark) and shows the same color in the editor **overview ruler** for quick navigation through larger files. The text of the line is not changed.
+- Highlights every matching line with the bookmark's color: a bar on the left edge of the line, right next to the gutter (default), or a strip in the gutter itself (`autoBookmarks.highlightStyle`). The same color is shown in the editor **overview ruler** for quick navigation through larger files. The text of the line is not changed.
 - **Active** checkbox per bookmark: temporarily switch a search text off without deleting it.
 - Supports configurable file extensions.
 - Supports case-sensitive or case-insensitive matching.
@@ -23,7 +23,15 @@ It is useful for quickly navigating recurring code patterns such as `TODO`, `FIX
 
 ## Version
 
-Current version: **2.4.0**
+Current version: **2.5.0**
+
+### What's new in 2.5.0
+
+- **Color and lightbulb are visible together.** VS Code draws its lightbulb in the gutter only on lines that have no gutter icon, so a colored gutter strip and the gutter lightbulb can never share a line (with a strip, VS Code draws the lightbulb over your code instead). The color is therefore now drawn as a bar on the left edge of the line, right next to the gutter (new setting `autoBookmarks.highlightStyle`, default `edge`). Set it to `gutter` for the previous gutter strip; in that style the strip hides on the cursor line while the cursor is on a link text, so the lightbulb can take its place.
+
+### What's new in 2.4.1
+
+- The Bookmarks table on the settings page now has **Active** as a column header (like **Search Text**); the row checkboxes no longer repeat the word.
 
 ### What's new in 2.4.0
 
@@ -64,7 +72,7 @@ Current version: **2.4.0**
 Download the VSIX package:
 
 ```text
-auto-bookmarks-2.4.0.vsix
+auto-bookmarks-2.5.0.vsix
 ```
 
 ### Install in Visual Studio Code
@@ -81,7 +89,7 @@ auto-bookmarks-2.4.0.vsix
 5. Select:
 
    ```text
-   auto-bookmarks-2.4.0.vsix
+   auto-bookmarks-2.5.0.vsix
    ```
 
 6. Wait for the installation to complete.
@@ -102,7 +110,7 @@ auto-bookmarks-2.4.0.vsix
 You can also install the VSIX from a terminal:
 
 ```bash
-code --install-extension auto-bookmarks-2.4.0.vsix
+code --install-extension auto-bookmarks-2.5.0.vsix
 ```
 
 ## Using Auto Bookmarks
@@ -168,7 +176,7 @@ Everything Auto Bookmarks looks for lives in one list, `autoBookmarks.documentat
 
 - `text` - the text to find in the active file (required).
 - `active` - `true` (default when missing) or `false`. Only active entries are searched; inactive ones stay in the list but create no bookmarks or highlights.
-- `color` - the highlight color: it fills the **gutter next to the line number** of matching lines and is also used in the editor **overview ruler** (default blue). The line text is not colored.
+- `color` - the highlight color (default blue): a bar on the left edge of matching lines next to the gutter (see `autoBookmarks.highlightStyle`) and the editor **overview ruler**. The line text is not colored.
 - `url` - an optional `http` or `https` documentation link.
 
 For example:
@@ -231,6 +239,7 @@ To allow Auto Bookmarks to scan files regardless of extension, use an empty file
 
 ## Available Settings
 
+- `autoBookmarks.highlightStyle` - `edge` (default): colored bar on the left edge of the line, next to the gutter, so the lightbulb can use the gutter; `gutter`: colored strip in the gutter (hides on the cursor line while the cursor is on a link text).
 - `autoBookmarks.documentationLinks` - The bookmark list: `text` to find, `active` (default `true`), optional `color` and optional `url` (shows an *Open Documentation* lightbulb).
 - `autoBookmarks.fileTypes` - File extensions that Auto Bookmarks is allowed to scan.
 - `autoBookmarks.caseSensitive` - Controls whether matching is case-sensitive.
@@ -286,13 +295,13 @@ Check the following:
 - `autoBookmarks.caseSensitive` matches the capitalization you expect.
 - Run **Auto Bookmarks: Refresh** from the Command Palette.
 
-### The colored gutter strip does not show
+### The color is not shown
 
-The color is drawn in the editor's glyph margin, next to the line numbers. Make sure `editor.glyphMargin` is `true` (the default). Only active bookmarks are drawn, and only in files allowed by `autoBookmarks.fileTypes`.
+Only active bookmarks are drawn, and only in files allowed by `autoBookmarks.fileTypes`. With `autoBookmarks.highlightStyle` set to `gutter`, the color is drawn in the editor's glyph margin, so `editor.glyphMargin` must be `true` (the default).
 
-### Nothing is found in a large file
+### The lightbulb is drawn over my code or the color disappears on the cursor line
 
-Files larger than `autoBookmarks.maxFileSizeMB` (default 20 MB) are skipped, and the status bar shows *Auto Bookmarks: file exceeds configured X MB limit*. Raise the limit on the settings page, or set it to `0` to scan every file.
+VS Code puts its lightbulb in the gutter only on lines without another gutter icon. With the default `edge` style the color is not a gutter icon, so both are shown. If you chose `gutter`, the strip hides on the line where the documentation lightbulb shows (and with an icon on the line VS Code would draw the lightbulb over the text instead). Switch back to `edge` to see both.
 
 ### The documentation lightbulb does not appear
 
@@ -318,7 +327,7 @@ npm run package    # renders media/icon.png from media/bookmark.svg, then runs v
 The package should produce:
 
 ```text
-auto-bookmarks-2.4.0.vsix
+auto-bookmarks-2.5.0.vsix
 ```
 
 The extension itself has no runtime dependencies. `media/bookmark.svg` is the source asset and the Activity Bar icon; `scripts/generate-icon.js` renders it to `media/icon.png` (256 x 256, on a dark plate so the light-grey glyph is visible on the Marketplace page) because the Marketplace does not accept SVG for the `icon` field. The PNG is regenerated on every `vsce package` / `vsce publish` through the `vscode:prepublish` script, and the committed copy is kept if the renderer is not installed.
@@ -339,13 +348,13 @@ AutoBookmarks/
 ├── CHANGELOG.md
 ├── LICENSE
 ├── README.md
-├── auto-bookmarks-2.4.0.vsix
+├── auto-bookmarks-2.5.0.vsix
 ├── extension.js
 ├── package-lock.json
 └── package.json
 ```
 
-`media/bookmark.svg` is the Activity Bar icon and the source of the Marketplace icon `media/icon.png`. `auto-bookmarks-2.4.0.vsix` is the ready-to-install package of the current version.
+`media/bookmark.svg` is the Activity Bar icon and the source of the Marketplace icon `media/icon.png`. `auto-bookmarks-2.5.0.vsix` is the ready-to-install package of the current version.
 
 ## License
 

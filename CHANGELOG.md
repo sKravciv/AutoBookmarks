@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.5.0
+- New setting `autoBookmarks.highlightStyle` (`edge` default, or `gutter`). **Default change:** the bookmark color is now a 3 px bar on the left edge of the line, right next to the gutter, instead of a gutter strip. A gutter strip makes VS Code (`lightBulbWidget.ts`) skip its gutter lightbulb and draw the lightbulb over the code; with the edge bar the gutter stays free, so color and documentation lightbulb are visible together. `gutter` keeps the 2.4.x strip (hides on the cursor line while the cursor is on a link text).
+- Changing the style swaps the decoration types without rescanning any file.
+
+## 2.4.2
+- Fixed the documentation lightbulb being drawn over the code on lines with a colored gutter strip. VS Code (`lightBulbWidget.ts`) shows its lightbulb in the gutter only on lines without a glyph-margin decoration. The strip of the cursor line now hides while the cursor is on a text that has a documentation link, so the lightbulb takes its place in the gutter, and returns when the cursor moves. The update is immediate and limited to the one editor; decoration types are not recreated.
+
+## 2.4.1
+- Settings page: **Active** is now a column header next to **Search Text**; the per-row checkboxes no longer carry an "Active" label.
+
 ## 2.4.0
 - Added an **Active** checkbox per bookmark. Entries of `autoBookmarks.documentationLinks` now have an `active` flag (`{ "text": "TODO", "active": true }`). Inactive entries are not searched, create no bookmarks, badge count or highlights, and stay saved. The documentation lightbulb of an entry does not depend on `active`.
 - Migration: entries without `active` (lists from 2.2.x/2.3.x) count as active and are written back as `"active": true` once; the 2.3.0 merge of the legacy `searchTexts`/`colors` settings now writes `active: true` as well. Nothing has to be reconfigured.

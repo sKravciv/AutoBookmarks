@@ -2,7 +2,7 @@
   "name": "auto-bookmarks",
   "displayName": "Auto Bookmarks",
   "description": "Automatically find configured text markers and navigate grouped occurrences from the Activity Bar.",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "publisher": "skravciv",
   "icon": "media/icon.png",
   "galleryBanner": {
@@ -189,6 +189,19 @@
               "text"
             ]
           }
+        },
+        "autoBookmarks.highlightStyle": {
+          "type": "string",
+          "enum": [
+            "edge",
+            "gutter"
+          ],
+          "enumDescriptions": [
+            "A colored bar on the left edge of the line, right next to the gutter. The gutter stays free, so VS Code's lightbulb for documentation links is shown there together with the color.",
+            "A colored strip in the gutter next to the line number. On the line where the documentation lightbulb is about to show (cursor on a link text) the strip hides, because VS Code cannot show both in the gutter."
+          ],
+          "default": "edge",
+          "description": "Where the bookmark color is drawn. The overview ruler always uses the color too."
         }
       }
     }

@@ -265,23 +265,27 @@ function matchesAt(s, entry, selStart, selEnd){
   return false;
 }
 
+// Link entries whose text sits exactly under `range` (the cursor or a selection). Shared by the lightbulb provider and by the
+// decoration code, so both always agree on which line is going to show the documentation lightbulb.
+function linkEntriesAt(document, range){
+  if (range.start.line !== range.end.line) return [];
+  const { links, maxLinkLength } = getBookmarks();
+  if (!links.length || range.end.character - range.start.character > maxLinkLength) return [];
+  const line = range.start.line, margin = maxLinkLength + 2;            // +2: room for a surrogate pair at either edge
+  const from = Math.max(0, range.start.character - margin);
+  const text = document.getText(new vscode.Range(line, from, line, range.end.character + margin)); // a few characters, never the file
+  const selStart = range.start.character - from, selEnd = range.end.character - from;
+  return links.filter(entry => matchesAt(text, entry, selStart, selEnd));
+}
+
 class DocumentationLinkProvider {
   provideCodeActions(document, range, context){
     if (context.only && !context.only.contains(vscode.CodeActionKind.QuickFix)) return undefined;
-    if (range.start.line !== range.end.line) return undefined;
-    const { links, maxLinkLength } = getBookmarks();
-    if (!links.length || range.end.character - range.start.character > maxLinkLength) return undefined;
-    const line = range.start.line, margin = maxLinkLength + 2;            // +2: room for a surrogate pair at either edge
-    const from = Math.max(0, range.start.character - margin);
-    const text = document.getText(new vscode.Range(line, from, line, range.end.character + margin)); // a few characters, never the file
-    const selStart = range.start.character - from, selEnd = range.end.character - from;
-    const actions = [];
-    for (const entry of links) {
-      if (!matchesAt(text, entry, selStart, selEnd)) continue;
+    const actions = linkEntriesAt(document, range).map(entry => {
       const action = new vscode.CodeAction(`${DOC_TITLE_PREFIX}Open ${entry.text} Documentation`, vscode.CodeActionKind.QuickFix);
       action.command = { command: DOC_COMMAND, title: action.title, arguments: [entry.url] };
-      actions.push(action);
-    }
+      return action;
+    });
     return actions.length ? actions : undefined;
   }
 }
@@ -297,6 +301,15 @@ async function openDocumentation(url){
 // exist and was ignored). The supported way to color the gutter is a glyph-margin icon: a solid square stretched over the
 // whole gutter cell (`gutterIconSize: 'cover'`) gives each matching line a colored strip next to its line number. The line
 // text is never touched. Needs `editor.glyphMargin` (default true). The overview ruler uses the same color.
+//
+// Lightbulb: VS Code (editor/contrib/codeAction/browser/lightBulbWidget.ts) draws its lightbulb in the gutter only when the
+// line has no glyph-margin decoration of any kind; with one it falls back to an inline widget that sits ON the code when the
+// neighbouring lines are not indented. A gutter strip and the gutter lightbulb can therefore never share a line. Hence two styles
+// (setting `autoBookmarks.highlightStyle`):
+//   'edge'   (default) a 3px bar on the left edge of the line, right next to the gutter. It is a normal whole-line decoration,
+//            not a glyph-margin one, so the gutter stays free for VS Code's lightbulb: both are visible together.
+//   'gutter' the strip in the gutter itself. On the line where the documentation lightbulb is about to show (cursor on a link
+//            text) the strip steps aside and comes back when the cursor leaves. See `skipLine` in activate().
 // ---------------------------------------------------------------------------
 const CSS_COLOR = /^(#[0-9a-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([0-9.,%\s]+\))$/i; // the value ends up inside a generated SVG
 const safeColor = c => (typeof c === 'string' && CSS_COLOR.test(c.trim()) ? c.trim() : DEFAULT_COLOR);
@@ -307,32 +320,35 @@ function gutterIconUri(color){
 }
 
 class DecorationManager {
-  constructor(){ this.types = new Map(); } // marker -> { color, type }. Types are reused between refreshes.
-  typeFor(marker, color){
+  constructor(){ this.types = new Map(); this.skipped = new WeakMap(); } // types: marker -> { color, type }, reused between refreshes. skipped: editor -> line left undecorated
+  typeFor(marker, color, style){
     const known = this.types.get(marker);
-    if (known && known.color === color) return known.type;
+    if (known && known.color === color && known.style === style) return known.type;
     if (known) known.type.dispose();
+    const look = style === 'gutter'
+      ? { gutterIconPath: gutterIconUri(color), gutterIconSize: 'cover' }
+      : { borderStyle: 'solid', borderWidth: '0 0 0 3px', borderColor: color }; // left edge of the line only; the text is not moved
     const type = vscode.window.createTextEditorDecorationType({
       isWholeLine: true,
-      gutterIconPath: gutterIconUri(color),
-      gutterIconSize: 'cover',
+      ...look,
       overviewRulerColor: color,
       overviewRulerLane: vscode.OverviewRulerLane.Left,
     });
-    this.types.set(marker, { color, type });
+    this.types.set(marker, { color, style, type });
     return type;
   }
-  apply(editors, bookmarks, scanFor){
+  apply(editors, bookmarks, scanFor, skipLine = () => -1, style = 'edge'){
     const live = new Set(bookmarks.markers); // active entries only: disabled or removed ones lose their decoration
     for (const [marker, entry] of this.types) if (!live.has(marker)) { entry.type.dispose(); this.types.delete(marker); }
     for (const ed of editors) {
+      const skip = skipLine(ed); this.skipped.set(ed, skip);
       const byMarker = new Map(scanFor(ed.document).map(g => [g.marker, g]));
       for (const marker of bookmarks.markers) {
         const group = byMarker.get(marker);
         if (group) {
           const ranges = []; let prevLine = -1; // one range per line is enough: several hits on a line look identical
-          for (const hit of group.hits) if (hit.line !== prevLine) { prevLine = hit.line; ranges.push(new vscode.Range(hit.line, 0, hit.line, 0)); }
-          ed.setDecorations(this.typeFor(marker, safeColor(bookmarks.colors.get(marker))), ranges);
+          for (const hit of group.hits) if (hit.line !== prevLine) { prevLine = hit.line; if (hit.line !== skip) ranges.push(new vscode.Range(hit.line, 0, hit.line, 0)); }
+          ed.setDecorations(this.typeFor(marker, safeColor(bookmarks.colors.get(marker)), style), ranges);
         } else if (this.types.has(marker)) ed.setDecorations(this.types.get(marker).type, []);
       }
     }
@@ -349,11 +365,11 @@ function settingsHtml(webview){
  const model=JSON.stringify({types,cs,maxMb,bookmarks}).replace(/</g,'\\u003c');
  return `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
  body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:24px;max-width:850px;margin:auto}h1{font-size:22px}section{border:1px solid var(--vscode-panel-border);padding:16px;margin:14px 0;border-radius:8px}label{display:block;font-weight:600;margin:8px 0}textarea,input[type=text],input[type=number]{box-sizing:border-box;width:100%;padding:8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border)}.actions{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:8px;background:var(--vscode-editor-background);padding:10px}button{padding:8px 14px;border:0;border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer}small{color:var(--vscode-descriptionForeground)}#status{margin-right:auto;color:var(--vscode-testing-iconPassed)}
- .bmrow{display:grid;grid-template-columns:78px minmax(0,1.2fr) 44px 92px minmax(0,2fr) 80px;gap:10px;align-items:center;margin:8px 0}.bmhead{font-weight:600;margin-bottom:0}.bmhead .colorhead{grid-column:span 2}input[type=color]{width:44px;height:32px;padding:0;border:1px solid var(--vscode-input-border);background:transparent}#bmErr{color:var(--vscode-errorForeground);margin:6px 0}.bmrow label.act{display:flex;align-items:center;gap:4px;font-weight:400;margin:0}.bmrow.off .bm-text{opacity:.55;text-decoration:line-through}
- </style></head><body><h1>Auto Bookmarks Settings</h1><section><label>Bookmarks</label><small>Text to find in the active file, its highlight color, and an optional documentation link. Untick Active to stop searching for a text without deleting it. With a link, the lightbulb offers "Open Documentation" when the cursor is on an exact match.</small><div class="bmrow bmhead"><span></span><span>Search Text</span><span class="colorhead">Color</span><span>Documentation URL (optional)</span><span></span></div><div id="bookmarks"></div><div id="bmErr"></div><button id="addBm" type="button">+ Add Bookmark</button></section><section><label for="types">File types</label><small>Comma separated. Empty means all file types.</small><input id="types" type="text"></section><section><label><input id="cs" type="checkbox"> Case sensitive</label></section><section><label for="maxMb">Maximum file size (MB)</label><small>Larger files are not scanned. 0 disables the limit.</small><input id="maxMb" type="number" min="0" step="any"></section><div class="actions"><span id="status"></span><button id="reload">Discard</button><button id="save">Save settings</button></div><script>
+ .bmrow{display:grid;grid-template-columns:56px minmax(0,1.2fr) 44px 92px minmax(0,2fr) 80px;gap:10px;align-items:center;margin:8px 0}.bmhead{font-weight:600;margin-bottom:0}.bmhead .colorhead{grid-column:span 2}input[type=color]{width:44px;height:32px;padding:0;border:1px solid var(--vscode-input-border);background:transparent}#bmErr{color:var(--vscode-errorForeground);margin:6px 0}.bmrow label.act{display:flex;align-items:center;gap:4px;font-weight:400;margin:0}.bmrow.off .bm-text{opacity:.55;text-decoration:line-through}
+ </style></head><body><h1>Auto Bookmarks Settings</h1><section><label>Bookmarks</label><small>Text to find in the active file, its highlight color, and an optional documentation link. Untick the Active box to stop searching for a text without deleting it. With a link, the lightbulb offers "Open Documentation" when the cursor is on an exact match.</small><div class="bmrow bmhead"><span>Active</span><span>Search Text</span><span class="colorhead">Color</span><span>Documentation URL (optional)</span><span></span></div><div id="bookmarks"></div><div id="bmErr"></div><button id="addBm" type="button">+ Add Bookmark</button></section><section><label for="types">File types</label><small>Comma separated. Empty means all file types.</small><input id="types" type="text"></section><section><label><input id="cs" type="checkbox"> Case sensitive</label></section><section><label for="maxMb">Maximum file size (MB)</label><small>Larger files are not scanned. 0 disables the limit.</small><input id="maxMb" type="number" min="0" step="any"></section><div class="actions"><span id="status"></span><button id="reload">Discard</button><button id="save">Save settings</button></div><script>
  const vscode=acquireVsCodeApi();let model=${model};
  const DEFAULT_COLOR='#3b82f6',HEX=/^#[0-9a-fA-F]{6}$/;
- function row(b){const r=document.createElement('div');r.className='bmrow';const al=document.createElement('label');al.className='act';const a=document.createElement('input');a.type='checkbox';a.className='bm-active';a.checked=b.active!==false;a.onchange=()=>r.classList.toggle('off',!a.checked);r.classList.toggle('off',!a.checked);al.append(a,' Active');const t=document.createElement('input');t.type='text';t.className='bm-text';t.placeholder='GlideRecord';t.value=b.text||'';const p=document.createElement('input');p.type='color';p.className='bm-color';p.value=HEX.test(b.color||'')?b.color:DEFAULT_COLOR;const h=document.createElement('input');h.type='text';h.className='bm-hex';h.value=p.value;const u=document.createElement('input');u.type='text';u.className='bm-url';u.placeholder='https://... (optional)';u.value=b.url||'';const d=document.createElement('button');d.type='button';d.textContent='Delete';d.onclick=()=>r.remove();p.oninput=()=>{h.value=p.value};h.oninput=()=>{if(HEX.test(h.value))p.value=h.value};r.append(al,t,p,h,u,d);return r;}
+ function row(b){const r=document.createElement('div');r.className='bmrow';const al=document.createElement('label');al.className='act';const a=document.createElement('input');a.type='checkbox';a.className='bm-active';a.checked=b.active!==false;a.onchange=()=>r.classList.toggle('off',!a.checked);r.classList.toggle('off',!a.checked);a.title='Active';a.setAttribute('aria-label','Active');al.append(a);const t=document.createElement('input');t.type='text';t.className='bm-text';t.placeholder='GlideRecord';t.value=b.text||'';const p=document.createElement('input');p.type='color';p.className='bm-color';p.value=HEX.test(b.color||'')?b.color:DEFAULT_COLOR;const h=document.createElement('input');h.type='text';h.className='bm-hex';h.value=p.value;const u=document.createElement('input');u.type='text';u.className='bm-url';u.placeholder='https://... (optional)';u.value=b.url||'';const d=document.createElement('button');d.type='button';d.textContent='Delete';d.onclick=()=>r.remove();p.oninput=()=>{h.value=p.value};h.oninput=()=>{if(HEX.test(h.value))p.value=h.value};r.append(al,t,p,h,u,d);return r;}
  function render(m){model=m;document.getElementById('types').value=m.types.join(', ');document.getElementById('cs').checked=m.cs;document.getElementById('maxMb').value=m.maxMb;const box=document.getElementById('bookmarks');box.innerHTML='';m.bookmarks.forEach(b=>box.append(row(b)));}
  function collect(){const out=[],seen=new Set();let bad='';document.querySelectorAll('#bookmarks .bmrow').forEach(r=>{const text=r.querySelector('.bm-text').value.trim(),url=r.querySelector('.bm-url').value.trim(),color=r.querySelector('.bm-color').value;if(!text&&!url)return;if(!text){bad=bad||'Each row needs a search text.';return;}if(seen.has(text)){bad=bad||'Duplicate search text: '+text;return;}seen.add(text);if(url&&!/^https?:[/][/]/i.test(url)){bad=bad||'Documentation URLs must start with http:// or https:// ('+text+')';return;}const e={text,active:r.querySelector('.bm-active').checked,color};if(url)e.url=url;out.push(e);});document.getElementById('bmErr').textContent=bad;return bad?null:out;}
  document.getElementById('addBm').onclick=()=>{const r=row({});document.getElementById('bookmarks').append(r);r.querySelector('.bm-text').focus();};
@@ -379,11 +395,15 @@ function activate(context){
  }
  function refreshNow(){ clearTimeout(refreshTimer); tree.refresh(); updateDecorations(); }
  context.subscriptions.push({dispose(){ clearTimeout(refreshTimer); }});
+ const scanFor=doc=>allowed(doc)?scanDocument(doc):[];
+ // The line whose strip steps aside so VS Code can put its documentation lightbulb in the gutter instead of over the code.
+ const highlightStyle=()=>config().get('highlightStyle','edge')==='gutter'?'gutter':'edge';
+ const skipLine=ed=>highlightStyle()==='gutter'&&ed===vscode.window.activeTextEditor&&ed.selection&&linkEntriesAt(ed.document,ed.selection).length?ed.selection.active.line:-1;
  function updateDecorations(){
   const data=groups(); // cached per document version: the tree, the badge and the decorations share one scan
   const count=data.reduce((total,group)=>total+group.hits.length,0);
   treeView.badge=count>0?{value:count,tooltip:`${count} bookmark match${count===1?'':'es'}`}:undefined;
-  decorations.apply(vscode.window.visibleTextEditors,getBookmarks(),doc=>allowed(doc)?scanDocument(doc):[]);
+  decorations.apply(vscode.window.visibleTextEditors,getBookmarks(),scanFor,skipLine,highlightStyle());
  }
  const treeView=vscode.window.createTreeView('autoBookmarksView',{treeDataProvider:tree}); context.subscriptions.push(treeView);
  let panel;
@@ -397,6 +417,8 @@ function activate(context){
   vscode.languages.registerCodeActionsProvider(DOC_SELECTOR,new DocumentationLinkProvider(),{providedCodeActionKinds:DocumentationLinkProvider.providedCodeActionKinds}),
   vscode.window.onDidChangeActiveTextEditor(scheduleRefresh),
   vscode.window.onDidChangeVisibleTextEditors(scheduleRefresh),
+  // Immediate (not debounced) and limited to the one editor, so the strip is gone before VS Code decides where the lightbulb goes.
+  vscode.window.onDidChangeTextEditorSelection(e=>{const ed=e.textEditor,next=skipLine(ed);if(decorations.skipped.get(ed)!==next)decorations.apply([ed],getBookmarks(),scanFor,skipLine,highlightStyle());}),
   vscode.workspace.onDidChangeTextDocument(e=>{
    if(!e.contentChanges.length) return; // dirty-flag changes etc.: same text, same cache entry, nothing to redo
    invalidateDocument(e.document.uri);
@@ -407,7 +429,7 @@ function activate(context){
    if(!e.affectsConfiguration('autoBookmarks')) return;
    if(e.affectsConfiguration('autoBookmarks.documentationLinks')) bookmarkCache=null;
    // the bookmark list (texts, colors, links) and the scan options decide what is found and how it is drawn
-   if(['documentationLinks','fileTypes','caseSensitive','maxFileSizeMB'].some(k=>e.affectsConfiguration('autoBookmarks.'+k))){
+   if(['documentationLinks','fileTypes','caseSensitive','maxFileSizeMB','highlightStyle'].some(k=>e.affectsConfiguration('autoBookmarks.'+k))){
     const key=currentScanKey();
     if(key!==scanKey){ scanKey=key; scanCache.clear(); } // active markers / case mode / size limit changed: results are stale
     if(e.affectsConfiguration('autoBookmarks.maxFileSizeMB')) oversizedNotified.clear();
