@@ -379,10 +379,6 @@ AutoBookmarks/
 │   └── icon.png
 ├── scripts/
 │   └── generate-icon.js
-├── test/
-│   └── extension.test.js
-├── .gitignore
-├── .vscodeignore
 ├── CHANGELOG.md
 ├── LICENSE
 ├── README.md
