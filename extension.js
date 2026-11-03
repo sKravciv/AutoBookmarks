@@ -1,5 +1,6 @@
 const vscode = require('vscode');
 const path = require('path');
+const os = require('os');
 
 const config = () => vscode.workspace.getConfiguration('autoBookmarks');
 const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -297,6 +298,122 @@ async function openDocumentation(url){
 }
 
 // ---------------------------------------------------------------------------
+// Export / import of the settings: a small JSON file, { format, version, exportedWith, settings: { ... } }.
+// Import is strict about what it accepts (every value is validated or dropped, unknown keys are ignored) and asks before it
+// changes anything. A plain block copied from settings.json ("autoBookmarks.documentationLinks": [...], ...) is accepted too.
+// ---------------------------------------------------------------------------
+const EXPORT_FORMAT = 'auto-bookmarks-settings';
+const EXPORT_VERSION = 1;
+const MAX_IMPORT_BYTES = 1024 * 1024;
+const HIGHLIGHT_STYLES = ['edge', 'gutter'];
+const SETTINGS_FILTER = { 'Auto Bookmarks settings': ['json'] };
+const getHighlightStyle = () => (config().get('highlightStyle', 'edge') === 'gutter' ? 'gutter' : 'edge');
+
+function cleanFileTypes(list){
+  const out = new Set();
+  for (const x of list) { if (typeof x !== 'string') continue; const t = x.trim().toLowerCase(); if (t) out.add(t.startsWith('.') ? t : '.' + t); }
+  return [...out];
+}
+
+// The settings as stored for this user, in the shape that is exported and imported.
+function currentSettings(){
+  const c = config(), links = c.get('documentationLinks', []), types = c.get('fileTypes', []);
+  return {
+    documentationLinks: sanitizeBookmarks(Array.isArray(links) ? links : []),
+    fileTypes: cleanFileTypes(Array.isArray(types) ? types : []),
+    caseSensitive: c.get('caseSensitive', true) !== false,
+    maxFileSizeMB: maxFileSizeMB(),
+    highlightStyle: getHighlightStyle(),
+  };
+}
+
+// -> { settings } with only valid values, or { error }.
+function parseImport(text){
+  let data;
+  try { data = JSON.parse(String(text).replace(/^\uFEFF/, '')); } catch { return { error: 'The file is not valid JSON.' }; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return { error: 'The file does not contain a settings object.' };
+  if (data.format !== undefined && data.format !== EXPORT_FORMAT) return { error: 'This is not an Auto Bookmarks settings file.' };
+  if (typeof data.version === 'number' && data.version > EXPORT_VERSION) return { error: 'This file was created by a newer version of Auto Bookmarks. Update the extension and try again.' };
+  const src = data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings) ? data.settings : data;
+  const pick = k => (Object.prototype.hasOwnProperty.call(src, k) ? src[k] : src['autoBookmarks.' + k]);
+  const settings = {};
+  const links = pick('documentationLinks'); if (Array.isArray(links)) settings.documentationLinks = sanitizeBookmarks(links);
+  const types = pick('fileTypes'); if (Array.isArray(types)) settings.fileTypes = cleanFileTypes(types);
+  const cs = pick('caseSensitive'); if (typeof cs === 'boolean') settings.caseSensitive = cs;
+  const mb = pick('maxFileSizeMB'); if (typeof mb === 'number' && Number.isFinite(mb) && mb >= 0) settings.maxFileSizeMB = mb;
+  const style = pick('highlightStyle'); if (HIGHLIGHT_STYLES.includes(style)) settings.highlightStyle = style;
+  if (!Object.keys(settings).length) return { error: 'No Auto Bookmarks settings were found in this file.' };
+  return { settings };
+}
+
+// 'replace': every imported value replaces the current one.
+// 'merge':   only bookmarks whose text is not in the list yet are added; existing bookmarks and all other settings stay.
+// Returns the number of bookmarks imported (replace) or added (merge).
+async function applyImport(settings, mode){
+  const c = config(), target = vscode.ConfigurationTarget.Global;
+  const put = async (k, v) => { if (JSON.stringify(c.get(k)) !== JSON.stringify(v)) await c.update(k, v, target); };
+  if (mode === 'merge') {
+    const stored = c.get('documentationLinks', []), have = Array.isArray(stored) ? stored : [];
+    const texts = new Set(have.filter(x => x && typeof x.text === 'string').map(x => x.text.trim()));
+    const added = (settings.documentationLinks || []).filter(e => !texts.has(e.text));
+    if (added.length) await put('documentationLinks', [...have, ...added]);
+    return added.length;
+  }
+  for (const [k, v] of Object.entries(settings)) await put(k, v);
+  return (settings.documentationLinks || []).length;
+}
+
+async function exportSettings(context){
+  const uri = await vscode.window.showSaveDialog({
+    title: 'Export Auto Bookmarks settings',
+    defaultUri: vscode.Uri.file(path.join(os.homedir(), 'auto-bookmarks-settings.json')),
+    filters: SETTINGS_FILTER,
+  });
+  if (!uri) return;
+  const payload = { format: EXPORT_FORMAT, version: EXPORT_VERSION, exportedWith: context.extension?.packageJSON?.version, settings: currentSettings() };
+  try {
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(payload, null, 2) + '\n', 'utf8'));
+    vscode.window.showInformationMessage(`Auto Bookmarks settings exported to ${uri.fsPath}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Auto Bookmarks: could not write the file (${err && err.message ? err.message : err}).`);
+  }
+}
+
+async function importSettings(){
+  const picked = await vscode.window.showOpenDialog({ title: 'Import Auto Bookmarks settings', openLabel: 'Import', canSelectMany: false, filters: SETTINGS_FILTER });
+  if (!picked || !picked.length) return;
+  const fail = reason => vscode.window.showErrorMessage(`Auto Bookmarks import failed: ${reason}`);
+  let text;
+  try {
+    const bytes = await vscode.workspace.fs.readFile(picked[0]);
+    if (bytes.length > MAX_IMPORT_BYTES) return fail('the file is larger than 1 MB.');
+    text = Buffer.from(bytes).toString('utf8');
+  } catch (err) { return fail(`could not read the file (${err && err.message ? err.message : err}).`); }
+  const { settings, error } = parseImport(text);
+  if (error) return fail(error);
+
+  const count = settings.documentationLinks ? settings.documentationLinks.length : 0;
+  const others = Object.keys(settings).filter(k => k !== 'documentationLinks').length;
+  const parts = [];
+  if (settings.documentationLinks) parts.push(`${count} bookmark${count === 1 ? '' : 's'}`);
+  if (others) parts.push(`${others} other setting${others === 1 ? '' : 's'}`);
+  const choices = settings.documentationLinks ? ['Replace', 'Merge'] : ['Import'];
+  const choice = await vscode.window.showWarningMessage(
+    `Import ${parts.join(' and ')} from ${path.basename(picked[0].fsPath)}?`,
+    { modal: true, detail: settings.documentationLinks
+        ? 'Replace: the imported values replace your current ones.\nMerge: bookmarks you do not have yet are added; your existing bookmarks and all other settings stay as they are.'
+        : 'The imported values replace your current ones.' },
+    ...choices);
+  if (!choice) return;
+  try {
+    const n = await applyImport(settings, choice === 'Merge' ? 'merge' : 'replace');
+    vscode.window.showInformationMessage(choice === 'Merge'
+      ? `Auto Bookmarks: merged ${n} new bookmark${n === 1 ? '' : 's'}.`
+      : `Auto Bookmarks: settings imported (${parts.join(' and ')}).`);
+  } catch (err) { fail(`could not save the settings (${err && err.message ? err.message : err}).`); }
+}
+
+// ---------------------------------------------------------------------------
 // Decorations. VS Code has no API for the background of the line-number text itself (the old `lineNumberStyle` option does not
 // exist and was ignored). The supported way to color the gutter is a glyph-margin icon: a solid square stretched over the
 // whole gutter cell (`gutterIconSize: 'cover'`) gives each matching line a colored strip next to its line number. The line
@@ -366,7 +483,7 @@ function settingsHtml(webview){
  return `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
  body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:24px;max-width:850px;margin:auto}h1{font-size:22px}section{border:1px solid var(--vscode-panel-border);padding:16px;margin:14px 0;border-radius:8px}label{display:block;font-weight:600;margin:8px 0}textarea,input[type=text],input[type=number]{box-sizing:border-box;width:100%;padding:8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border)}.actions{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:8px;background:var(--vscode-editor-background);padding:10px}button{padding:8px 14px;border:0;border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer}small{color:var(--vscode-descriptionForeground)}#status{margin-right:auto;color:var(--vscode-testing-iconPassed)}
  .bmrow{display:grid;grid-template-columns:56px minmax(0,1.2fr) 44px 92px minmax(0,2fr) 80px;gap:10px;align-items:center;margin:8px 0}.bmhead{font-weight:600;margin-bottom:0}.bmhead .colorhead{grid-column:span 2}input[type=color]{width:44px;height:32px;padding:0;border:1px solid var(--vscode-input-border);background:transparent}#bmErr{color:var(--vscode-errorForeground);margin:6px 0}.bmrow label.act{display:flex;align-items:center;gap:4px;font-weight:400;margin:0}.bmrow.off .bm-text{opacity:.55;text-decoration:line-through}
- </style></head><body><h1>Auto Bookmarks Settings</h1><section><label>Bookmarks</label><small>Text to find in the active file, its highlight color, and an optional documentation link. Untick the Active box to stop searching for a text without deleting it. With a link, the lightbulb offers "Open Documentation" when the cursor is on an exact match.</small><div class="bmrow bmhead"><span>Active</span><span>Search Text</span><span class="colorhead">Color</span><span>Documentation URL (optional)</span><span></span></div><div id="bookmarks"></div><div id="bmErr"></div><button id="addBm" type="button">+ Add Bookmark</button></section><section><label for="types">File types</label><small>Comma separated. Empty means all file types.</small><input id="types" type="text"></section><section><label><input id="cs" type="checkbox"> Case sensitive</label></section><section><label for="maxMb">Maximum file size (MB)</label><small>Larger files are not scanned. 0 disables the limit.</small><input id="maxMb" type="number" min="0" step="any"></section><div class="actions"><span id="status"></span><button id="reload">Discard</button><button id="save">Save settings</button></div><script>
+ </style></head><body><h1>Auto Bookmarks Settings</h1><section><label>Bookmarks</label><small>Text to find in the active file, its highlight color, and an optional documentation link. Untick the Active box to stop searching for a text without deleting it. With a link, the lightbulb offers "Open Documentation" when the cursor is on an exact match.</small><div class="bmrow bmhead"><span>Active</span><span>Search Text</span><span class="colorhead">Color</span><span>Documentation URL (optional)</span><span></span></div><div id="bookmarks"></div><div id="bmErr"></div><button id="addBm" type="button">+ Add Bookmark</button></section><section><label for="types">File types</label><small>Comma separated. Empty means all file types.</small><input id="types" type="text"></section><section><label><input id="cs" type="checkbox"> Case sensitive</label></section><section><label for="maxMb">Maximum file size (MB)</label><small>Larger files are not scanned. 0 disables the limit.</small><input id="maxMb" type="number" min="0" step="any"></section><div class="actions"><span id="status"></span><button id="export" title="Writes the saved settings to a JSON file (save first to include your edits)">Export...</button><button id="import" title="Reads settings from a JSON file; you choose Replace or Merge">Import...</button><button id="reload">Discard</button><button id="save">Save settings</button></div><script>
  const vscode=acquireVsCodeApi();let model=${model};
  const DEFAULT_COLOR='#3b82f6',HEX=/^#[0-9a-fA-F]{6}$/;
  function row(b){const r=document.createElement('div');r.className='bmrow';const al=document.createElement('label');al.className='act';const a=document.createElement('input');a.type='checkbox';a.className='bm-active';a.checked=b.active!==false;a.onchange=()=>r.classList.toggle('off',!a.checked);r.classList.toggle('off',!a.checked);a.title='Active';a.setAttribute('aria-label','Active');al.append(a);const t=document.createElement('input');t.type='text';t.className='bm-text';t.placeholder='GlideRecord';t.value=b.text||'';const p=document.createElement('input');p.type='color';p.className='bm-color';p.value=HEX.test(b.color||'')?b.color:DEFAULT_COLOR;const h=document.createElement('input');h.type='text';h.className='bm-hex';h.value=p.value;const u=document.createElement('input');u.type='text';u.className='bm-url';u.placeholder='https://... (optional)';u.value=b.url||'';const d=document.createElement('button');d.type='button';d.textContent='Delete';d.onclick=()=>r.remove();p.oninput=()=>{h.value=p.value};h.oninput=()=>{if(HEX.test(h.value))p.value=h.value};r.append(al,t,p,h,u,d);return r;}
@@ -376,6 +493,8 @@ function settingsHtml(webview){
  render(model);
  document.getElementById('save').onclick=()=>{const bookmarks=collect();if(!bookmarks)return;const fileTypes=document.getElementById('types').value.split(',').map(x=>x.trim()).filter(Boolean).map(x=>x.startsWith('.')?x.toLowerCase():'.'+x.toLowerCase());const mb=parseFloat(document.getElementById('maxMb').value);vscode.postMessage({type:'save',fileTypes,caseSensitive:document.getElementById('cs').checked,maxFileSizeMB:Number.isFinite(mb)&&mb>=0?mb:20,documentationLinks:bookmarks});};
  document.getElementById('reload').onclick=()=>vscode.postMessage({type:'reload'});
+ document.getElementById('export').onclick=()=>vscode.postMessage({type:'export'});
+ document.getElementById('import').onclick=()=>vscode.postMessage({type:'import'});
  window.addEventListener('message',e=>{if(e.data.type==='model')render(e.data.model);if(e.data.type==='saved'){document.getElementById('status').textContent='Saved';setTimeout(()=>document.getElementById('status').textContent='',1200)}});
  </script></body></html>`;
 }
@@ -397,7 +516,7 @@ function activate(context){
  context.subscriptions.push({dispose(){ clearTimeout(refreshTimer); }});
  const scanFor=doc=>allowed(doc)?scanDocument(doc):[];
  // The line whose strip steps aside so VS Code can put its documentation lightbulb in the gutter instead of over the code.
- const highlightStyle=()=>config().get('highlightStyle','edge')==='gutter'?'gutter':'edge';
+ const highlightStyle=getHighlightStyle;
  const skipLine=ed=>highlightStyle()==='gutter'&&ed===vscode.window.activeTextEditor&&ed.selection&&linkEntriesAt(ed.document,ed.selection).length?ed.selection.active.line:-1;
  function updateDecorations(){
   const data=groups(); // cached per document version: the tree, the badge and the decorations share one scan
@@ -407,9 +526,11 @@ function activate(context){
  }
  const treeView=vscode.window.createTreeView('autoBookmarksView',{treeDataProvider:tree}); context.subscriptions.push(treeView);
  let panel;
- const openSettings=()=>{if(panel){panel.reveal();panel.webview.html=settingsHtml(panel.webview);return;}panel=vscode.window.createWebviewPanel('autoBookmarksSettings','Auto Bookmarks Settings',vscode.ViewColumn.Active,{enableScripts:true,retainContextWhenHidden:true});panel.webview.html=settingsHtml(panel.webview);panel.webview.onDidReceiveMessage(async m=>{if(m.type==='save'){const c=config();const put=async(k,v)=>{if(JSON.stringify(c.get(k))!==JSON.stringify(v))await c.update(k,v,vscode.ConfigurationTarget.Global);};await put('fileTypes',m.fileTypes);await put('caseSensitive',m.caseSensitive);if(typeof m.maxFileSizeMB==='number'&&Number.isFinite(m.maxFileSizeMB)&&m.maxFileSizeMB>=0)await put('maxFileSizeMB',m.maxFileSizeMB);if(Array.isArray(m.documentationLinks))await put('documentationLinks',sanitizeBookmarks(m.documentationLinks));scheduleRefresh();panel.webview.postMessage({type:'saved'});vscode.window.showInformationMessage('Auto Bookmarks settings saved globally for your VS Code user profile.');}else if(m.type==='reload'){panel.webview.html=settingsHtml(panel.webview);}},undefined,context.subscriptions);panel.onDidDispose(()=>panel=undefined,undefined,context.subscriptions);};
+ const openSettings=()=>{if(panel){panel.reveal();panel.webview.html=settingsHtml(panel.webview);return;}panel=vscode.window.createWebviewPanel('autoBookmarksSettings','Auto Bookmarks Settings',vscode.ViewColumn.Active,{enableScripts:true,retainContextWhenHidden:true});panel.webview.html=settingsHtml(panel.webview);panel.webview.onDidReceiveMessage(async m=>{if(m.type==='save'){const c=config();const put=async(k,v)=>{if(JSON.stringify(c.get(k))!==JSON.stringify(v))await c.update(k,v,vscode.ConfigurationTarget.Global);};await put('fileTypes',m.fileTypes);await put('caseSensitive',m.caseSensitive);if(typeof m.maxFileSizeMB==='number'&&Number.isFinite(m.maxFileSizeMB)&&m.maxFileSizeMB>=0)await put('maxFileSizeMB',m.maxFileSizeMB);if(Array.isArray(m.documentationLinks))await put('documentationLinks',sanitizeBookmarks(m.documentationLinks));scheduleRefresh();panel.webview.postMessage({type:'saved'});vscode.window.showInformationMessage('Auto Bookmarks settings saved globally for your VS Code user profile.');}else if(m.type==='reload'){panel.webview.html=settingsHtml(panel.webview);}else if(m.type==='export'){vscode.commands.executeCommand('autoBookmarks.exportSettings');}else if(m.type==='import'){vscode.commands.executeCommand('autoBookmarks.importSettings');}},undefined,context.subscriptions);panel.onDidDispose(()=>panel=undefined,undefined,context.subscriptions);};
  context.subscriptions.push(
   vscode.commands.registerCommand('autoBookmarks.openSettings',openSettings),
+  vscode.commands.registerCommand('autoBookmarks.exportSettings',()=>exportSettings(context)),
+  vscode.commands.registerCommand('autoBookmarks.importSettings',importSettings),
   vscode.commands.registerCommand('autoBookmarks.refresh',()=>{scanCache.clear();refreshNow();}),
   vscode.commands.registerCommand('autoBookmarks.addSelectedText',async()=>{const ed=vscode.window.activeTextEditor;if(!ed||ed.selection.isEmpty){vscode.window.showWarningMessage('Select text in the editor first.');return;}const value=ed.document.getText(ed.selection).trim();if(!value)return;const c=config(), raw=c.get('documentationLinks',[]), arr=Array.isArray(raw)?raw:[];const found=arr.find(x=>x&&x.text===value);if(found&&found.active!==false){vscode.window.showInformationMessage(`Auto Bookmarks already contains: ${value}`);return;}if(found){await c.update('documentationLinks',arr.map(x=>x===found?withActive({...x,active:true}):x),vscode.ConfigurationTarget.Global);vscode.window.showInformationMessage(`Re-enabled Auto Bookmark search text: ${value}`);return;}await c.update('documentationLinks',[...arr,{text:value,active:true,color:DEFAULT_COLOR}],vscode.ConfigurationTarget.Global);scheduleRefresh();vscode.window.showInformationMessage(`Added Auto Bookmark search text: ${value}`);}),
   vscode.commands.registerCommand('autoBookmarks.reveal',async x=>{const d=await vscode.workspace.openTextDocument(x.file),ed=await vscode.window.showTextDocument(d);const p=new vscode.Position(x.line,x.character);ed.selection=new vscode.Selection(p,p);ed.revealRange(new vscode.Range(p,p),vscode.TextEditorRevealType.InCenter);}),

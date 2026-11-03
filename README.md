@@ -23,7 +23,11 @@ It is useful for quickly navigating recurring code patterns such as `TODO`, `FIX
 
 ## Version
 
-Current version: **2.5.0**
+Current version: **2.6.0**
+
+### What's new in 2.6.0
+
+- **Export and import of the settings.** Share your bookmarks and options between machines or colleagues, or keep a backup. Use **Auto Bookmarks: Export Settings** / **Auto Bookmarks: Import Settings** from the Command Palette, or the **Export...** / **Import...** buttons on the settings page. See *Export and Import Settings* below.
 
 ### What's new in 2.5.0
 
@@ -72,7 +76,7 @@ Current version: **2.5.0**
 Download the VSIX package:
 
 ```text
-auto-bookmarks-2.5.0.vsix
+auto-bookmarks-2.6.0.vsix
 ```
 
 ### Install in Visual Studio Code
@@ -89,7 +93,7 @@ auto-bookmarks-2.5.0.vsix
 5. Select:
 
    ```text
-   auto-bookmarks-2.5.0.vsix
+   auto-bookmarks-2.6.0.vsix
    ```
 
 6. Wait for the installation to complete.
@@ -110,7 +114,7 @@ auto-bookmarks-2.5.0.vsix
 You can also install the VSIX from a terminal:
 
 ```bash
-code --install-extension auto-bookmarks-2.5.0.vsix
+code --install-extension auto-bookmarks-2.6.0.vsix
 ```
 
 ## Using Auto Bookmarks
@@ -150,6 +154,38 @@ Edit the **Bookmarks** table (tick or untick **Active**, edit a text, color or l
 Use **Discard** to reload the saved values.
 
 All Auto Bookmarks settings are stored at the VS Code **User/Global** level. Your configuration therefore applies across workspaces and also works when you open an individual file without opening a workspace.
+
+## Export and Import Settings
+
+Export writes your saved settings (bookmarks including inactive ones, colors, links, file types, case sensitivity, maximum file size, highlight style) to a JSON file; import reads such a file back.
+
+- **Export:** run **Auto Bookmarks: Export Settings** (Command Palette) or click **Export...** on the settings page, then choose where to save `auto-bookmarks-settings.json`. Unsaved edits on the settings page are not included: click **Save settings** first.
+- **Import:** run **Auto Bookmarks: Import Settings** or click **Import...**, then pick the file. Auto Bookmarks shows what the file contains and asks before changing anything:
+  - **Replace** - the imported values replace your current ones.
+  - **Merge** - bookmarks whose text you do not have yet are added; your existing bookmarks and all other settings stay as they are.
+- Everything in the file is validated: invalid colors, non-http(s) links, duplicates and unknown keys are dropped, and files larger than 1 MB are refused. Nothing is changed when the file is invalid or you cancel.
+- Imported values are stored at the **User/Global** level, like all other settings.
+- A block copied from your `settings.json` (`"autoBookmarks.documentationLinks": [...]`, `"autoBookmarks.caseSensitive": false`, ...) can be imported as well.
+
+Example file:
+
+```json
+{
+  "format": "auto-bookmarks-settings",
+  "version": 1,
+  "exportedWith": "2.6.0",
+  "settings": {
+    "documentationLinks": [
+      { "text": "TODO", "active": true, "color": "#fbbf24" },
+      { "text": "GlideRecord", "active": false, "color": "#38bdf8", "url": "https://developer.servicenow.com/dev.do#!/reference/api/latest/server/no-namespace/c_GlideRecordScopedAPI" }
+    ],
+    "fileTypes": [".js", ".ts"],
+    "caseSensitive": true,
+    "maxFileSizeMB": 20,
+    "highlightStyle": "edge"
+  }
+}
+```
 
 ## Add Search Text Directly from the Editor
 
@@ -257,6 +293,8 @@ Auto Bookmarks provides the following commands:
 - `Auto Bookmarks: Refresh`
 - `Auto Bookmarks: Open Settings`
 - `Auto Bookmarks: Add Selected Text`
+- `Auto Bookmarks: Export Settings`
+- `Auto Bookmarks: Import Settings`
 
 ## Updating the Extension
 
@@ -327,7 +365,7 @@ npm run package    # renders media/icon.png from media/bookmark.svg, then runs v
 The package should produce:
 
 ```text
-auto-bookmarks-2.5.0.vsix
+auto-bookmarks-2.6.0.vsix
 ```
 
 The extension itself has no runtime dependencies. `media/bookmark.svg` is the source asset and the Activity Bar icon; `scripts/generate-icon.js` renders it to `media/icon.png` (256 x 256, on a dark plate so the light-grey glyph is visible on the Marketplace page) because the Marketplace does not accept SVG for the `icon` field. The PNG is regenerated on every `vsce package` / `vsce publish` through the `vscode:prepublish` script, and the committed copy is kept if the renderer is not installed.
@@ -348,13 +386,13 @@ AutoBookmarks/
 ├── CHANGELOG.md
 ├── LICENSE
 ├── README.md
-├── auto-bookmarks-2.5.0.vsix
+├── auto-bookmarks-2.6.0.vsix
 ├── extension.js
 ├── package-lock.json
 └── package.json
 ```
 
-`media/bookmark.svg` is the Activity Bar icon and the source of the Marketplace icon `media/icon.png`. `auto-bookmarks-2.5.0.vsix` is the ready-to-install package of the current version.
+`media/bookmark.svg` is the Activity Bar icon and the source of the Marketplace icon `media/icon.png`. `auto-bookmarks-2.6.0.vsix` is the ready-to-install package of the current version.
 
 ## License
 

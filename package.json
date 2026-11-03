@@ -2,7 +2,7 @@
   "name": "auto-bookmarks",
   "displayName": "Auto Bookmarks",
   "description": "Automatically find configured text markers and navigate grouped occurrences from the Activity Bar.",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "publisher": "skravciv",
   "icon": "media/icon.png",
   "galleryBanner": {
@@ -34,7 +34,9 @@
     "onStartupFinished",
     "onView:autoBookmarksView",
     "onCommand:autoBookmarks.openSettings",
-    "onCommand:autoBookmarks.addSelectedText"
+    "onCommand:autoBookmarks.addSelectedText",
+    "onCommand:autoBookmarks.exportSettings",
+    "onCommand:autoBookmarks.importSettings"
   ],
   "contributes": {
     "commands": [
@@ -51,6 +53,14 @@
       {
         "command": "autoBookmarks.addSelectedText",
         "title": "Auto Bookmarks: Add Selected Text"
+      },
+      {
+        "command": "autoBookmarks.exportSettings",
+        "title": "Auto Bookmarks: Export Settings"
+      },
+      {
+        "command": "autoBookmarks.importSettings",
+        "title": "Auto Bookmarks: Import Settings"
       }
     ],
     "menus": {

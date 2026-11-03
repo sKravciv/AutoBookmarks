@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.6.0
+- Added **export and import of the settings**: new commands `Auto Bookmarks: Export Settings` and `Auto Bookmarks: Import Settings`, plus **Export...** / **Import...** buttons on the settings page. The export is a versioned JSON file (`format: auto-bookmarks-settings`) with the bookmarks (including inactive ones), file types, case sensitivity, maximum file size and highlight style.
+- Import validates every value and drops what is invalid (bad colors, non-http(s) links, duplicates, unknown keys), refuses files over 1 MB, a different format or a newer file version, and asks before changing anything: **Replace** or **Merge** (add only bookmarks you do not have yet). Imported values are saved at the User/Global level. A block copied from `settings.json` is accepted too.
+
 ## 2.5.0
 - New setting `autoBookmarks.highlightStyle` (`edge` default, or `gutter`). **Default change:** the bookmark color is now a 3 px bar on the left edge of the line, right next to the gutter, instead of a gutter strip. A gutter strip makes VS Code (`lightBulbWidget.ts`) skip its gutter lightbulb and draw the lightbulb over the code; with the edge bar the gutter stays free, so color and documentation lightbulb are visible together. `gutter` keeps the 2.4.x strip (hides on the cursor line while the cursor is on a link text).
 - Changing the style swaps the decoration types without rescanning any file.
